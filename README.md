@@ -106,3 +106,40 @@ Rozwijane "Co oznacza ten kod?" objaśnia każdy znak.
 ### Źródła danych
 - kodzus_codes.py — katalog 19 rdzeni 05xx + struktura znaków
   (z oficjalnej listy ZUS i rozporządzenia MRiPS z 27.06.2025)
+
+## Poprawki logiki — zbieg z etatem (v5)
+
+Na podstawie zasad ZUS dla przedsiębiorcy na etacie:
+
+1. **Zbieg z UoP ≥ płaca minimalna NIE zmienia kodu.** Przedsiębiorca przechodzi
+   normalną ścieżkę ulg (05 40 → 05 70 → 05 90 → 05 10). Zmienia się tylko zakres:
+   składki społeczne = 0 zł (zwolnione), płatna tylko zdrowotna.
+   Wcześniej kalkulator błędnie wymuszał 05 10 — odbierając należne ulgi.
+
+2. **"Były pracodawca" obejmuje też OBECNEGO pracodawcę** (interpretacja ZUS
+   z 19.04.2018). Jeśli w działalności świadczysz usługi dla obecnego/byłego
+   pracodawcy w pokrywającym się zakresie → brak ulg, kod 05 10.
+
+3. **Dobrowolne chorobowe zablokowane przy etacie ≥ min.** Gdy składki społeczne
+   z działalności są dobrowolne (przez etat), nie można zgłosić chorobowego z działalności.
+
+Świadome uproszczenia (poza zakresem MVP): przesunięcie wypłaty na przełomie roku,
+urlop bezpłatny, zwolnienie lekarskie wpływające na pojedynczy miesiąc.
+
+## Działalność nierejestrowana (v6)
+
+Na ostatnim kroku wizarda (Preferencje) — checkbox "Sprawdź czy kwalifikuję się
+do działalności nierejestrowanej". Sprawdzane PRZED ścieżką JDG.
+
+Warunki kwalifikacji (art. 5 ust. 1 Prawa przedsiębiorców):
+- przychód miesięczny < 75% min. wynagrodzenia (3 604,50 zł w 2026)
+- brak działalności gospodarczej w ostatnich 60 miesiącach
+
+Jeśli kwalifikuje → wynik: brak rejestracji CEIDG, brak składek ZUS, tylko podatek.
+Jeśli przekracza próg → przechodzi do normalnej ścieżki JDG z ostrzeżeniem.
+
+### Walidacja logiki na podstawie dokumentów źródłowych
+Dokumenty "umowa zlecenie/dzieło" i "optymalizacja składek" potwierdziły poprawność
+ścieżki ulg i zwolnienia przy zbiegu z etatem. Świadomie NIE objęto zakresem (poza JDG):
+umowa zlecenie (kod 04 11), umowa o dzieło (brak ZUS), sp. z o.o. wieloosobowa,
+praca za granicą — to alternatywy dla JDG, nie warianty ścieżki przedsiębiorcy.

@@ -155,6 +155,8 @@ ULGA_MONTHS = 6
 PREFERENTIAL_MONTHS = 24
 MZP_MONTHS = 36
 PREVIOUS_ACTIVITY_BLOCK_MONTHS = 60
+# Działalność nierejestrowana: przychód miesięczny < 75% min. wynagrodzenia
+UNREGISTERED_THRESHOLD_PCT = 0.75
 
 
 @dataclass
@@ -174,6 +176,9 @@ class WizardInput:
     lump_sum_rate: float = 8.5
     estimated_monthly_income: float = 0.0
     estimated_annual_revenue: float = 0.0
+    # Działalność nierejestrowana — sprawdzane PRZED ścieżką JDG
+    check_unregistered: bool = False     # czy rozważa działalność nierejestrowaną
+    monthly_revenue_unreg: float = 0.0   # szacowany przychód miesięczny (do progu 75%)
 
 
 def _get_code(stage: str, wants_chorobowe: bool) -> str:
@@ -217,6 +222,7 @@ def _build_full_zus_result(inp: WizardInput, exclusion_reason: str | None,
         "has_ulga": False,
         "has_preferential": False,
         "can_mzp": False,
+        "social_exempt": False,
         "start_date": inp.start_date,
         "calculation_date": inp.calculation_date,
     }
@@ -238,6 +244,65 @@ def _can_use_mzp(inp: WizardInput) -> bool:
     return True
 
 
+def _check_unregistered(inp: WizardInput, min_wage: float) -> dict | None:
+    """
+    Sprawdza czy kwalifikuje się do działalności nierejestrowanej.
+    Warunki (art. 5 ust. 1 Prawa przedsiębiorców):
+      - przychód miesięczny < 75% minimalnego wynagrodzenia
+      - brak działalności gospodarczej w ostatnich 60 miesiącach
+    Zwraca dict-wynik jeśli kwalifikuje, w przeciwnym razie None.
+    """
+    threshold = round(min_wage * UNREGISTERED_THRESHOLD_PCT, 2)
+    revenue = inp.monthly_revenue_unreg
+
+    qualifies_revenue = revenue <= threshold
+    qualifies_history = not inp.had_previous_activity
+
+    if qualifies_revenue and qualifies_history:
+        return {
+            "current_code": "—",
+            "current_stage": "unregistered",
+            "stage_label": "Działalność nierejestrowana",
+            "stage_start": inp.start_date,
+            "stage_end": None,
+            "exclusion_reason": None,
+            "warnings": [
+                f"Kwalifikujesz się do DZIAŁALNOŚCI NIEREJESTROWANEJ: przychód miesięczny "
+                f"({revenue:.2f} PLN) nie przekracza progu 75% min. wynagrodzenia ({threshold:.2f} PLN) "
+                f"i nie prowadziłeś działalności w ostatnich 60 miesiącach.",
+                "W działalności nierejestrowanej NIE rejestrujesz firmy w CEIDG, NIE masz numeru ZUS "
+                "i NIE płacisz składek (ani społecznych, ani zdrowotnej). Rozliczasz tylko podatek dochodowy.",
+                "UWAGA: jeśli w którymkolwiek miesiącu przekroczysz próg przychodu, masz 7 dni na "
+                "rejestrację w CEIDG — wtedy wchodzisz w normalną ścieżkę JDG (Ulga na Start itd.).",
+            ],
+            "path": [{
+                "stage": "unregistered", "code": "—",
+                "label": "Działalność nierejestrowana",
+                "from": inp.start_date, "to": None,
+            }],
+            "wants_chorobowe": False,
+            "has_ulga": False,
+            "has_preferential": False,
+            "can_mzp": False,
+            "social_exempt": True,
+            "is_unregistered": True,
+            "unreg_threshold": threshold,
+            "start_date": inp.start_date,
+            "calculation_date": inp.calculation_date,
+        }
+
+    # Nie kwalifikuje — zwróć powód (jako ostrzeżenie do dalszej ścieżki JDG)
+    reasons = []
+    if not qualifies_revenue:
+        reasons.append(
+            f"przychód {revenue:.2f} PLN przekracza próg działalności nierejestrowanej "
+            f"({threshold:.2f} PLN = 75% min. wynagrodzenia)"
+        )
+    if not qualifies_history:
+        reasons.append("prowadziłeś działalność w ostatnich 60 miesiącach")
+    return {"_unreg_rejected": "; ".join(reasons)}
+
+
 def _find_current_stage(path: list[dict], calc_date: date) -> dict:
     for stage in path:
         after_start = calc_date >= stage["from"]
@@ -254,19 +319,42 @@ def calculate(inp: WizardInput) -> dict:
     warnings: list[str] = []
     exclusion_reason = None
 
-    # KROK 1: Zbieg z UoP >= min. płacy
-    if inp.employment_overlap and inp.employment_salary >= min_wage and inp.employment_type == "uop":
-        return _build_full_zus_result(
-            inp, None,
-            [f"Zbieg tytułów: wynagrodzenie z UoP ({inp.employment_salary:.2f} PLN) "
-             f">= płacy minimalnej ({min_wage:.2f} PLN). Z działalności opłacasz tylko składkę zdrowotną."]
-        )
+    # KROK 0: Działalność nierejestrowana (sprawdzana PRZED ścieżką JDG)
+    if inp.check_unregistered:
+        unreg = _check_unregistered(inp, min_wage)
+        if unreg and unreg.get("is_unregistered"):
+            return unreg
+        if unreg and unreg.get("_unreg_rejected"):
+            warnings.append(
+                f"Nie kwalifikujesz się do działalności nierejestrowanej "
+                f"({unreg['_unreg_rejected']}). Poniżej standardowa ścieżka JDG."
+            )
 
-    if inp.employment_overlap and inp.employment_type == "uop" and 0 < inp.employment_salary < min_wage:
-        warnings.append(
-            f"Zbieg tytułów: wynagrodzenie z UoP ({inp.employment_salary:.2f} PLN) "
-            f"< płacy minimalnej ({min_wage:.2f} PLN). Obowiązują pełne składki ZUS z obu tytułów."
-        )
+    # KROK 1: Zbieg z UoP — NIE zmienia kodu ani ścieżki ulg.
+    # Etat >= min. płacy → składki społeczne z działalności są ZWOLNIONE
+    # (przedsiębiorca idzie normalną ścieżką 05 40 → 05 70 → ..., ale płaci tylko zdrowotną).
+    # Źródło: art. 9 ustawy o sus + interpretacje ZUS (przykłady z dokumentu).
+    social_exempt = False  # czy składki społeczne są zwolnione przez etat
+
+    if inp.employment_overlap and inp.employment_type == "uop":
+        if inp.employment_salary >= min_wage:
+            social_exempt = True
+            warnings.append(
+                f"Zbieg z umową o pracę: wynagrodzenie z etatu ({inp.employment_salary:.2f} PLN) "
+                f"≥ płacy minimalnej ({min_wage:.2f} PLN). Z działalności jesteś ZWOLNIONY ze składek "
+                f"społecznych — opłacasz tylko składkę zdrowotną. Kod tytułu ubezpieczenia pozostaje "
+                f"zgodny z Twoim etapem (ulga/preferencyjny/MZP/pełny), zmienia się tylko zakres składek."
+            )
+        elif inp.employment_salary > 0:
+            warnings.append(
+                f"Zbieg z umową o pracę: wynagrodzenie z etatu ({inp.employment_salary:.2f} PLN) "
+                f"< płacy minimalnej ({min_wage:.2f} PLN). Obowiązują pełne składki ZUS z obu tytułów."
+            )
+        else:
+            warnings.append(
+                "Zbieg z umową o pracę — nie podano wynagrodzenia. Zakładamy poniżej płacy "
+                "minimalnej (pełne składki z działalności). Podaj wynagrodzenie dla dokładnego wyniku."
+            )
 
     if inp.employment_overlap and inp.employment_type == "other":
         warnings.append(
@@ -295,6 +383,16 @@ def calculate(inp: WizardInput) -> dict:
 
     # KROK 4: Poprzednia działalność blokuje Ulgę
     has_ulga = inp.wants_ulga
+
+    # Chorobowe niedostępne gdy składki społeczne zwolnione przez etat
+    if social_exempt and inp.wants_chorobowe:
+        inp.wants_chorobowe = False
+        warnings.append(
+            "Dobrowolne ubezpieczenie chorobowe jest niedostępne: przy zbiegu z etatem "
+            "≥ płacy minimalnej składki społeczne z działalności są dobrowolne, więc nie "
+            "można zgłosić się do chorobowego z tytułu działalności."
+        )
+
     if has_ulga and inp.had_previous_activity:
         if _is_ulga_blocked(inp.start_date, inp.previous_end_date):
             has_ulga = False
@@ -359,6 +457,7 @@ def calculate(inp: WizardInput) -> dict:
         "has_ulga": has_ulga,
         "has_preferential": True,
         "can_mzp": can_mzp,
+        "social_exempt": social_exempt,
         "start_date": inp.start_date,
         "calculation_date": inp.calculation_date,
     }
@@ -427,6 +526,10 @@ def split_by_year(d_from: date, d_to: date):
 
 def generate_timeline(result: dict, inp: WizardInput) -> list[dict]:
     """Buduje harmonogram 5-letni z kwotami."""
+    # Działalność nierejestrowana — brak składek ZUS, brak harmonogramu
+    if result.get("is_unregistered"):
+        return []
+
     path = result["path"]
     horizon = inp.calculation_date + relativedelta(years=5)
     timeline = []
@@ -439,6 +542,9 @@ def generate_timeline(result: dict, inp: WizardInput) -> list[dict]:
             year = seg_from.year
             rates = get_rates(year)
             social = compute_social(stage_data["stage"], result["wants_chorobowe"], rates)
+            # Zwolnienie ze składek społecznych przez etat ≥ min. płacy
+            if result.get("social_exempt"):
+                social = 0.0
             healthcare = compute_healthcare(
                 inp.taxation_form, inp.estimated_monthly_income,
                 inp.estimated_annual_revenue, seg_from, rates

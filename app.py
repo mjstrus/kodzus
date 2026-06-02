@@ -40,51 +40,153 @@ st.set_page_config(
 )
 
 st.markdown("""
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
 <style>
-    .stApp { background: #f8f9fc; }
-    h1, h2, h3 { color: #003366 !important; }
+    :root {
+        --navy:        #0a2540;
+        --navy-2:      #14315c;
+        --accent:      #2563eb;
+        --accent-soft: #e8f0fe;
+        --ink:         #1a2233;
+        --muted:       #64748b;
+        --line:        #e2e8f0;
+        --bg:          #f6f8fc;
+        --success:     #0f9d58;
+        --warning:     #e8a317;
+        --danger:      #d93939;
+    }
+
+    /* ---------- Globalne ---------- */
+    html, body, [class*="css"], .stApp {
+        font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+    }
+    .stApp { background: var(--bg); }
+
+    /* Główny kontener — węższy, wycentrowany, z oddechem */
+    .block-container { max-width: 760px; padding-top: 2rem; padding-bottom: 4rem; }
+
+    h1, h2, h3, h4 { color: var(--navy) !important; letter-spacing: -0.02em; font-weight: 700; }
+
+    /* ---------- Header ---------- */
     .kodzus-header {
-        background: linear-gradient(135deg, #003366 0%, #1a5599 100%);
-        color: white; padding: 24px 28px; border-radius: 10px; margin-bottom: 8px;
+        background: linear-gradient(135deg, var(--navy) 0%, var(--navy-2) 55%, var(--accent) 140%);
+        color: #fff; padding: 30px 34px; border-radius: 18px; margin-bottom: 22px;
+        box-shadow: 0 12px 32px -12px rgba(10,37,64,0.45);
+        position: relative; overflow: hidden;
     }
-    .kodzus-header h1 { color: white !important; margin: 0; font-size: 1.6rem; }
-    .kodzus-header p { opacity: 0.85; margin: 4px 0 0; font-size: 0.92rem; }
+    .kodzus-header::after {
+        content: ""; position: absolute; top: -40%; right: -10%;
+        width: 280px; height: 280px; border-radius: 50%;
+        background: radial-gradient(circle, rgba(255,255,255,0.10), transparent 70%);
+    }
+    .kodzus-header h1 { color: #fff !important; margin: 0; font-size: 1.7rem; font-weight: 800; }
+    .kodzus-header p { opacity: 0.82; margin: 6px 0 0; font-size: 0.95rem; font-weight: 400; }
+
+    /* ---------- Przyciski ---------- */
     .stButton button {
-        background: #003366; color: white; border: none; border-radius: 6px;
-        padding: 8px 24px; font-weight: 600;
+        background: var(--navy); color: #fff; border: none; border-radius: 10px;
+        padding: 11px 26px; font-weight: 600; font-size: 0.95rem;
+        transition: transform .12s ease, box-shadow .12s ease, background .12s ease;
+        box-shadow: 0 4px 14px -6px rgba(10,37,64,0.5);
     }
-    .stButton button:hover { background: #1a5599; color: white; }
+    .stButton button:hover {
+        background: var(--accent); transform: translateY(-1px);
+        box-shadow: 0 8px 20px -6px rgba(37,99,235,0.55); color: #fff;
+    }
+    .stButton button:active { transform: translateY(0); }
+
     .stDownloadButton button {
-        background: #198754; color: white; border: none; border-radius: 6px;
-        padding: 8px 24px; font-weight: 600;
+        background: var(--success); color: #fff; border: none; border-radius: 10px;
+        padding: 11px 26px; font-weight: 600;
+        box-shadow: 0 4px 14px -6px rgba(15,157,88,0.5);
     }
+    .stDownloadButton button:hover { background: #0c7d46; color: #fff; }
+
+    /* ---------- Pasek postępu ---------- */
+    .stProgress > div > div > div { background: var(--bg); border-radius: 99px; height: 8px; }
+    .stProgress > div > div > div > div {
+        background: linear-gradient(90deg, var(--accent), var(--navy));
+        border-radius: 99px;
+    }
+
+    /* ---------- Pola formularza ---------- */
+    .stTextInput input, .stNumberInput input, .stDateInput input {
+        border-radius: 10px !important; border: 1.5px solid var(--line) !important;
+        padding: 10px 14px !important; font-size: 0.95rem !important;
+    }
+    .stTextInput input:focus, .stNumberInput input:focus, .stDateInput input:focus {
+        border-color: var(--accent) !important;
+        box-shadow: 0 0 0 3px rgba(37,99,235,0.12) !important;
+    }
+
+    /* Radio jako karty */
+    div[role="radiogroup"] label {
+        background: #fff; border: 1.5px solid var(--line); border-radius: 12px;
+        padding: 12px 16px; margin-bottom: 8px; transition: all .12s ease;
+        box-shadow: 0 1px 3px rgba(10,37,64,0.04);
+    }
+    div[role="radiogroup"] label:hover {
+        border-color: var(--accent); box-shadow: 0 4px 12px -4px rgba(37,99,235,0.25);
+    }
+
+    /* Checkbox */
+    .stCheckbox { background: #fff; border: 1.5px solid var(--line); border-radius: 12px;
+        padding: 12px 16px; box-shadow: 0 1px 3px rgba(10,37,64,0.04); }
+
+    /* ---------- Blok kodu (wynik) ---------- */
     .code-block {
-        font-family: 'Courier New', monospace; background: #0d1117; color: #e6edf3;
-        border-radius: 8px; padding: 20px 24px; margin: 16px 0;
+        font-family: 'JetBrains Mono', 'Courier New', monospace;
+        background: linear-gradient(145deg, #0a1628, #0f2138);
+        color: #e6edf3; border-radius: 16px; padding: 26px 30px; margin: 18px 0;
+        box-shadow: 0 16px 40px -16px rgba(10,22,40,0.7);
+        border: 1px solid rgba(255,255,255,0.06);
     }
-    .code-label { color: #8b949e; font-size: 0.75rem; text-transform: uppercase; }
-    .code-value { color: #79c0ff; font-weight: bold; font-size: 1.6rem; }
-    .code-desc { color: #a5d6ff; font-size: 0.9rem; margin-top: 6px; }
-    .alert-error {
-        background: #fff5f5; border-left: 5px solid #c0392b; color: #7b1a1a;
-        padding: 14px 18px; border-radius: 6px; margin: 12px 0;
+    .code-label { color: #7d8fa3; font-size: 0.72rem; text-transform: uppercase;
+        letter-spacing: 0.08em; font-weight: 500; }
+    .code-value { color: #6db3ff; font-weight: 700; font-size: 2rem;
+        letter-spacing: 0.05em; margin-top: 2px; }
+    .code-desc { color: #a5d6ff; font-size: 0.95rem; margin-top: 6px; font-weight: 500; }
+
+    /* ---------- Alerty ---------- */
+    .alert-error, .alert-warning, .alert-info, .alert-success {
+        border-radius: 12px; padding: 15px 18px; margin: 12px 0; font-size: 0.92rem;
+        line-height: 1.55; border-left: 4px solid; box-shadow: 0 2px 8px -4px rgba(10,37,64,0.12);
     }
-    .alert-warning {
-        background: #fffbf0; border-left: 5px solid #e6a817; color: #7a5500;
-        padding: 14px 18px; border-radius: 6px; margin: 12px 0;
+    .alert-error   { background: #fef2f2; border-color: var(--danger);  color: #7f1d1d; }
+    .alert-warning { background: #fffbeb; border-color: var(--warning); color: #78550c; }
+    .alert-info    { background: var(--accent-soft); border-color: var(--accent); color: #1e3a8a; }
+    .alert-success { background: #ecfdf3; border-color: var(--success); color: #14532d; }
+
+    /* ---------- Tabela ---------- */
+    .stDataFrame { border-radius: 12px; overflow: hidden; border: 1px solid var(--line); }
+
+    /* ---------- Metryki ---------- */
+    div[data-testid="stMetric"] {
+        background: #fff; border: 1px solid var(--line); border-radius: 14px;
+        padding: 16px 18px; box-shadow: 0 2px 10px -4px rgba(10,37,64,0.1);
     }
-    .alert-info {
-        background: #f0f4ff; border-left: 5px solid #0066cc; color: #003166;
-        padding: 14px 18px; border-radius: 6px; margin: 12px 0;
+    div[data-testid="stMetricValue"] { color: var(--navy); font-weight: 800; }
+
+    /* ---------- Sidebar ---------- */
+    section[data-testid="stSidebar"] { background: #fff; border-right: 1px solid var(--line); }
+
+    /* ---------- Expander ---------- */
+    .streamlit-expanderHeader, details summary {
+        border-radius: 10px !important; font-weight: 600; color: var(--navy);
     }
-    .alert-success {
-        background: #f0fff4; border-left: 5px solid #198754; color: #155724;
-        padding: 12px 16px; border-radius: 6px; margin: 8px 0;
-    }
+
+    /* ---------- Legal / drobny tekst ---------- */
     .legal {
-        font-size: 0.75rem; color: #6c757d; border-top: 1px solid #dee2e6;
-        padding-top: 12px; margin-top: 20px;
+        font-size: 0.76rem; color: var(--muted); border-top: 1px solid var(--line);
+        padding-top: 14px; margin-top: 22px; line-height: 1.6;
     }
+
+    /* Ukryj domyślną stopkę i menu Streamlit dla czystszego wyglądu */
+    #MainMenu { visibility: hidden; }
+    footer { visibility: hidden; }
+    div[data-testid="stDecoration"] { display: none; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -98,6 +200,46 @@ def get_gus_key():
         return st.secrets.get("gus_api_key", "")
     except Exception:
         return ""
+
+
+# Polskie nazwy miesięcy — niezależne od przeglądarki
+POLISH_MONTHS = [
+    "styczeń", "luty", "marzec", "kwiecień", "maj", "czerwiec",
+    "lipiec", "sierpień", "wrzesień", "październik", "listopad", "grudzień",
+]
+
+
+def polish_date_input(label: str, key: str, default: date,
+                      min_year: int = 2015, max_year: int | None = None) -> date:
+    """
+    Wybór daty z polskimi nazwami miesięcy (dzień / miesiąc / rok).
+    Niezależny od ustawień językowych przeglądarki.
+    """
+    if max_year is None:
+        max_year = date.today().year + 5
+
+    st.markdown(f"**{label}**")
+    c1, c2, c3 = st.columns([1, 2, 1.3])
+
+    with c1:
+        day = st.selectbox("Dzień", list(range(1, 32)),
+                           index=default.day - 1, key=f"{key}_d")
+    with c2:
+        month = st.selectbox("Miesiąc", POLISH_MONTHS,
+                            index=default.month - 1, key=f"{key}_m")
+    with c3:
+        years = list(range(min_year, max_year + 1))
+        default_year_idx = years.index(default.year) if default.year in years else len(years) - 1
+        year = st.selectbox("Rok", years, index=default_year_idx, key=f"{key}_y")
+
+    month_num = POLISH_MONTHS.index(month) + 1
+    # Korekta dnia dla krótszych miesięcy
+    import calendar as _cal
+    max_day = _cal.monthrange(year, month_num)[1]
+    safe_day = min(day, max_day)
+    if safe_day != day:
+        st.caption(f"⚠️ {month} {year} ma {max_day} dni — ustawiono {safe_day}.")
+    return date(year, month_num, safe_day)
 
 
 with st.sidebar:
@@ -398,12 +540,10 @@ if step_name == "start":
                 st.caption("Dodaj klucz GUS API w Secrets żeby włączyć autouzupełnianie.")
 
     st.write("Podaj datę wpisaną do CEIDG jako dzień rozpoczęcia działalności:")
-    d["start_date"] = st.date_input(
-        "Data rozpoczęcia działalności",
-        value=d.get("start_date", date.today()),
-        min_value=date(2015, 1, 1),
-        max_value=date(date.today().year + 5, 12, 31),
-        format="DD.MM.YYYY",
+    d["start_date"] = polish_date_input(
+        "Data rozpoczęcia działalności", "start_date",
+        default=d.get("start_date", date.today()),
+        min_year=2015, max_year=date.today().year + 5,
     )
 
     col1, col2 = st.columns([1, 1])
@@ -429,12 +569,10 @@ elif step_name == "history":
     d["had_previous_activity"] = prev.startswith("Tak")
 
     if d["had_previous_activity"]:
-        d["previous_end_date"] = st.date_input(
-            "Data zamknięcia poprzedniej działalności",
-            value=d.get("previous_end_date", date.today()),
-            min_value=date(2010, 1, 1),
-            max_value=date.today(),
-            format="DD.MM.YYYY",
+        d["previous_end_date"] = polish_date_input(
+            "Data zamknięcia poprzedniej działalności", "prev_end",
+            default=d.get("previous_end_date", date.today()),
+            min_year=2010, max_year=date.today().year,
         )
 
     col1, col2 = st.columns([1, 1])
@@ -449,17 +587,20 @@ elif step_name == "history":
 # =============================================================================
 
 elif step_name == "employer":
-    st.subheader("🏢 Relacja z byłym pracodawcą")
-    st.markdown('<div class="alert-info">ℹ️ Jeśli TAK — tracisz prawo do Ulgi na Start i Preferencyjnego ZUS.</div>', unsafe_allow_html=True)
+    st.subheader("🏢 Praca dla obecnego lub byłego pracodawcy")
+    st.markdown('<div class="alert-info">ℹ️ Jeśli TAK — tracisz prawo do Ulgi na Start i Preferencyjnego ZUS, niezależnie od etatu. '
+                'Wg interpretacji ZUS "były pracodawca" obejmuje też <strong>obecnego</strong> pracodawcę, dla którego świadczysz usługi w ramach działalności.</div>',
+                unsafe_allow_html=True)
 
     emp = st.radio(
-        "Były pracodawca",
-        options=["Nie — brak pracy dla byłego pracodawcy w tej samej działalności",
-                 "Tak — świadczę usługi byłemu pracodawcy w tym samym zakresie"],
+        "Pracodawca",
+        options=["Nie — w działalności nie pracuję dla obecnego ani byłego pracodawcy",
+                 "Tak — świadczę w działalności usługi dla obecnego lub byłego pracodawcy (ostatnie 2 lata)"],
         index=0 if not d.get("former_employer") else 1,
         label_visibility="collapsed",
     )
     d["former_employer"] = emp.startswith("Tak")
+    st.caption("Dotyczy sytuacji gdy zakres działalności pokrywa się z tym, co robiłeś/robisz na etacie u tego pracodawcy.")
 
     col1, col2 = st.columns([1, 1])
     with col1:
@@ -595,16 +736,37 @@ elif step_name == "preferences":
         "Chcę skorzystać z Ulgi na Start (05 40)", value=d.get("wants_ulga", True),
         help="6 pełnych miesięcy bez składek społecznych.")
 
-    chorobowe_disabled = d["wants_ulga"]
+    # Chorobowe niedostępne: w trakcie Ulgi LUB przy zbiegu z etatem ≥ min. płacy
+    min_wage = MIN_WAGE_2026
+    uop_exempt = (d.get("employment_type") == "uop"
+                  and d.get("employment_salary", 0) >= min_wage)
+    chorobowe_disabled = d["wants_ulga"] or uop_exempt
+
     d["wants_chorobowe"] = st.checkbox(
         "Chcę opłacać dobrowolne ubezpieczenie chorobowe",
         value=False if chorobowe_disabled else d.get("wants_chorobowe", False),
         disabled=chorobowe_disabled,
-        help="Niedostępne w trakcie Ulgi na Start.")
-    if chorobowe_disabled:
+        help="Niedostępne w trakcie Ulgi na Start oraz przy etacie ≥ płacy minimalnej.")
+    if d["wants_ulga"]:
         st.caption("ℹ️ Dobrowolne chorobowe niedostępne w trakcie Ulgi na Start.")
+    elif uop_exempt:
+        st.caption("ℹ️ Dobrowolne chorobowe niedostępne: masz etat ≥ płacy minimalnej, "
+                   "więc składki społeczne z działalności są dobrowolne (nie możesz zgłosić chorobowego).")
 
     st.markdown('<div class="alert-info">Kliknij <strong>Oblicz</strong> żeby wygenerować harmonogram.</div>', unsafe_allow_html=True)
+
+    st.divider()
+    st.markdown("##### Działalność nierejestrowana")
+    d["check_unregistered"] = st.checkbox(
+        "Sprawdź czy kwalifikuję się do działalności nierejestrowanej",
+        value=d.get("check_unregistered", False),
+        help="Bez rejestracji w CEIDG, bez składek ZUS. Próg: przychód miesięczny < 75% min. wynagrodzenia (3 604,50 zł w 2026) i brak działalności w ostatnich 60 msc.",
+    )
+    if d["check_unregistered"]:
+        d["monthly_revenue_unreg"] = st.number_input(
+            "Szacowany przychód miesięczny (PLN)", min_value=0.0, step=100.0,
+            value=d.get("monthly_revenue_unreg", 0.0),
+            help="Próg 2026: 3 604,50 zł (75% z 4 806 zł).")
 
     col1, col2 = st.columns([1, 1])
     with col1:
@@ -634,11 +796,45 @@ elif step_name == "result":
         lump_sum_rate=d.get("lump_sum_rate", 8.5),
         estimated_monthly_income=d.get("estimated_monthly_income", 0.0),
         estimated_annual_revenue=d.get("estimated_annual_revenue", 0.0),
+        check_unregistered=d.get("check_unregistered", False),
+        monthly_revenue_unreg=d.get("monthly_revenue_unreg", 0.0),
     )
 
     result = calculate(inp)
     timeline = generate_timeline(result, inp)
     error_info = detect_error(result)
+
+    # --- PRZYPADEK: działalność nierejestrowana ---
+    if result.get("is_unregistered"):
+        st.markdown(f"""
+        <div class="code-block">
+            <div class="code-label">Forma działalności</div>
+            <div class="code-value" style="font-size:1.3rem">Działalność nierejestrowana</div>
+            <div class="code-desc">Bez rejestracji w CEIDG · bez numeru ZUS · bez składek</div>
+            <br>
+            <div class="code-label">Składki ZUS: 0 zł · Rozliczasz tylko podatek dochodowy</div>
+        </div>
+        """, unsafe_allow_html=True)
+        st.markdown('<div class="alert-success">✅ Kwalifikujesz się do działalności nierejestrowanej — '
+                    'nie płacisz żadnych składek ZUS (ani społecznych, ani zdrowotnej).</div>',
+                    unsafe_allow_html=True)
+        for w in result["warnings"]:
+            st.markdown(f'<div class="alert-info">ℹ️ {w}</div>', unsafe_allow_html=True)
+
+        st.markdown(f"""
+        <div class="legal">
+            Próg działalności nierejestrowanej 2026: przychód miesięczny do 3 604,50 zł (75% min. wynagrodzenia).
+            Wynik informacyjny — nie stanowi porady prawnej. Po przekroczeniu progu masz 7 dni na rejestrację w CEIDG.
+        </div>
+        """, unsafe_allow_html=True)
+
+        st.divider()
+        cc1, cc2 = st.columns([1, 1])
+        with cc1:
+            st.button("← Wstecz", on_click=go_prev, use_container_width=True)
+        with cc2:
+            st.button("↩ Zacznij od nowa", on_click=restart, use_container_width=True)
+        st.stop()
 
     # Domknij kod do pełnej postaci 6-znakowej (rdzeń + 5. + 6. znak)
     core = result["current_code"].replace(" ", "")
@@ -685,6 +881,13 @@ elif step_name == "result":
 
     for w in result["warnings"]:
         st.markdown(f'<div class="alert-warning">ℹ️ {w}</div>', unsafe_allow_html=True)
+
+    if result.get("social_exempt"):
+        st.markdown(
+            '<div class="alert-success">✅ <strong>Zwolnienie ze składek społecznych</strong> — '
+            'dzięki etatowi ≥ płacy minimalnej z działalności opłacasz tylko składkę zdrowotną. '
+            'W harmonogramie poniżej składki społeczne wynoszą 0 zł.</div>',
+            unsafe_allow_html=True)
 
     st.subheader("Harmonogram składek ZUS")
     df = pd.DataFrame([{
