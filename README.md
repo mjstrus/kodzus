@@ -1,14 +1,17 @@
 # KODZUS — Kalkulator Kodów ZUS (Streamlit)
 
-Prototyp webowy kalkulatora ZUS. Wizard krok po kroku.
+Webowy kalkulator ZUS. Wizard krok po kroku, eksport kalendarza, tryb biura.
 
 ## Pliki
 
 ```
 kodzus-streamlit/
-├── app.py              ← aplikacja Streamlit (UI wizarda)
-├── kodzus_core.py      ← logika ZUS (kalkulacja, harmonogram, wykrywanie błędów)
-├── requirements.txt    ← zależności
+├── app.py                          ← aplikacja Streamlit (UI)
+├── kodzus_core.py                  ← logika ZUS (kalkulacja, harmonogram)
+├── kodzus_ics.py                   ← generator pliku .ics (kalendarz)
+├── kodzus_gus.py                   ← autouzupełnianie NIP z GUS API
+├── requirements.txt                ← zależności
+├── .streamlit/secrets.toml.example ← szablon konfiguracji klucza GUS
 └── README.md
 ```
 
@@ -19,38 +22,87 @@ pip install -r requirements.txt
 streamlit run app.py
 ```
 
-Otworzy się w przeglądarce pod http://localhost:8501
-
 ## Hosting za darmo — Streamlit Community Cloud
 
-1. Załóż konto na https://share.streamlit.io (logujesz się przez GitHub)
-2. Wrzuć te pliki do publicznego (lub prywatnego) repozytorium GitHub
-3. Na share.streamlit.io kliknij "New app", wskaż repozytorium i plik `app.py`
-4. Deploy — w 2 minuty masz publiczny adres typu `https://kodzus.streamlit.app`
+1. Konto na https://share.streamlit.io (logowanie przez GitHub)
+2. Wrzuć pliki do repozytorium GitHub
+3. "New app" → wskaż repo i app.py → Deploy
+4. Publiczny adres typu https://kodzus.streamlit.app
 
-## Co działa
+## Funkcje
 
-- Wizard: 7 pytań krok po kroku + wynik
-- Algorytm Pełnego Miesiąca (Wariant A — zgodny z ustawą)
-- Wszystkie ścieżki: Ulga → Preferencyjny → Mały ZUS Plus → Pełny ZUS
-- Wykluczenia: były pracodawca, emeryt/rencista, zbieg tytułów z UoP
-- Składka zdrowotna: skala, liniowy, ryczałt (3 progi), karta podatkowa
-- Harmonogram 5-letni z kwotami + prognozy z oznaczeniem
-- Wykrywanie błędnego kodu + alert CTA
+### Wizard (7 kroków + wynik)
+Algorytm Pełnego Miesiąca, wszystkie ścieżki ZUS, wykluczenia, składka zdrowotna
+(4 formy opodatkowania), harmonogram 5-letni, wykrywanie błędnego kodu.
 
-## Czego jeszcze nie ma (do dodania)
+### Eksport .ics (kalendarz)
+Na ekranie wyniku — przycisk "Pobierz kalendarz". Plik zawiera:
+- Wydarzenia zmiany kodu ZUS (każda granica etapu)
+- Przypomnienia 30 dni przed zmianą
+- Coroczne terminy: oświadczenie MZP (styczeń), rozliczenie zdrowotnej (maj)
+- Opcjonalnie: cykliczne przypomnienia miesięczne o zapłacie składek
 
-- Zapis leadów do bazy (Streamlit nie ma wbudowanej bazy — trzeba podpiąć np. Google Sheets albo Supabase)
+Otwiera się w Google Calendar, Apple Calendar, Outlook.
+
+### Autouzupełnianie NIP z GUS
+Na pierwszym kroku — wpisz NIP, kliknij "Pobierz dane z GUS".
+WYMAGA klucza API (bezpłatny z https://api.stat.gov.pl/Home/RegonApi).
+Bez klucza — wizard działa normalnie, tylko bez autouzupełniania.
+
+KONFIGURACJA KLUCZA:
+- Lokalnie: skopiuj .streamlit/secrets.toml.example → .streamlit/secrets.toml, wstaw klucz
+- Cloud: Settings → Secrets → wklej: gus_api_key = "TWOJ_KLUCZ"
+
+### Tryb biura rachunkowego
+Panel boczny (lewy) → przełącznik "Przedsiębiorca / Biuro rachunkowe".
+W trybie biura: brak gate kontaktowego, alert błędnego kodu kierowany do księgowej
+("Klient powinien być na kodzie X").
+
+## Czego jeszcze nie ma
+
+- Zapis leadów do bazy (Streamlit nie ma wbudowanej bazy — podepnij Google Sheets / Supabase)
 - Wysyłka emaila z wynikiem
-- Eksport .ics (kalendarz)
 - Formularz kontaktowy / gate
-- Autouzupełnianie NIP z GUS
-- Tryb biura rachunkowego
-
-To prototyp do walidacji logiki. Gdy logika będzie potwierdzona na 100 klientach,
-przejście na docelowy SaaS (Next.js + API) jest proste — `kodzus_core.py` przenosi się 1:1.
+- Płatności (paywall)
 
 ## Aktualizacja kwot ZUS
 
-Kwoty są w `kodzus_core.py` w słownikach `RATES_2026` i `RATES_2027_FORECAST`.
+Kwoty w kodzus_core.py w słownikach RATES_2026 i RATES_2027_FORECAST.
 Gdy ZUS ogłosi nowe oficjalne kwoty — zaktualizuj te słowniki.
+
+## Import zbiorczy (tryb biura rachunkowego)
+
+Panel boczny → "Biuro rachunkowe" → "Import zbiorczy".
+
+1. **Pobierz szablon CSV** (rozwiń "Jak przygotować plik")
+2. Wypełnij danymi klientów. Wymagane kolumny: `nip, nazwa, data_startu, aktualny_kod`
+3. **Wgraj plik** (CSV lub Excel)
+4. **Zweryfikuj wszystkich** — kalkulator liczy prawidłowy kod dla każdego i porównuje z aktualnym
+5. Zobacz podsumowanie (ilu klientów ma błędny kod) + tabelę z podświetleniem błędów
+6. **Eksport:**
+   - Raport końcowy do Excel (podsumowanie + szczegóły)
+   - Kalendarz .ics ze zmianami kodów wszystkich klientów
+
+Kolumny opcjonalne (domyślnie brak wykluczeń, skala podatkowa):
+forma_opodatkowania, byly_pracodawca, zbieg_uop, wynagrodzenie_uop, status, chce_chorobowe, przychod_roczny
+
+Docelowo: eksport do Frappe zamiast Excela (struktura kolumn już pod to przygotowana).
+
+## Katalog kodów + baza wiedzy (od v4)
+
+### Przeglądarka katalogu kodów
+Panel boczny → checkbox "📖 Przeglądarka katalogu kodów".
+Pełny katalog kodów działalności gospodarczej (rdzeń 05xx) z wyszukiwarką.
+Plus objaśnienie struktury 5. znaku (emerytura/renta) i 6. znaku (niepełnosprawność).
+
+### Pełny kod 6-znakowy w wyniku
+Wynik pokazuje teraz pełny 6-znakowy kod (RR RR PN):
+- rdzeń wyliczony przez kalkulator (np. 05 70)
+- 5. znak: automatycznie z statusu (emeryt → 1)
+- 6. znak: ze stopnia niepełnosprawności podanego w kroku "Status"
+
+Rozwijane "Co oznacza ten kod?" objaśnia każdy znak.
+
+### Źródła danych
+- kodzus_codes.py — katalog 19 rdzeni 05xx + struktura znaków
+  (z oficjalnej listy ZUS i rozporządzenia MRiPS z 27.06.2025)
