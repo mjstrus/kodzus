@@ -1,0 +1,13 @@
+# Sekrety — NIGDY na GitHub
+.streamlit/secrets.toml
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# System
+.DS_Store
+Thumbs.db
