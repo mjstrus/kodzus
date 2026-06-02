@@ -143,3 +143,45 @@ Dokumenty "umowa zlecenie/dzieło" i "optymalizacja składek" potwierdziły popr
 ścieżki ulg i zwolnienia przy zbiegu z etatem. Świadomie NIE objęto zakresem (poza JDG):
 umowa zlecenie (kod 04 11), umowa o dzieło (brak ZUS), sp. z o.o. wieloosobowa,
 praca za granicą — to alternatywy dla JDG, nie warianty ścieżki przedsiębiorcy.
+
+## Zwolnienia ze składki zdrowotnej (v9)
+
+Dodano dwa zwolnienia ze składki ZDROWOTNEJ (kod się nie zmienia, zmienia się kwota):
+
+1. **Emeryt o niskim świadczeniu** — zwolniony ze zdrowotnej z działalności, jeśli ŁĄCZNIE:
+   emerytura brutto ≤ płaca minimalna (4 806 zł 2026) ORAZ
+   przychód z działalności ≤ 50% najniższej emerytury (LUB karta podatkowa).
+   Najniższa emerytura: 1 878,91 zł (do 29.02.2026), 1 978,49 zł (od 1.03.2026 — waloryzacja 5,3%).
+
+2. **Pracownik o niskiej podstawie** — zwolniony ze zdrowotnej z działalności, jeśli ŁĄCZNIE:
+   podstawa z etatu ≤ płaca minimalna ORAZ przychód z działalności ≤ 50% min. wynagrodzenia ORAZ ryczałt.
+
+Zasada projektowa: kalkulator pilnuje wysokości KAŻDEJ składki, nie tylko kodu.
+Każda reguła zmieniająca kwotę (nawet gdy kod zostaje) jest tak samo istotna.
+
+### Walidacja
+Dokument "Zbieg tytułów do ubezpieczeń" potwierdził: ścieżkę ulg, zwolnienie społeczne przy etacie,
+emeryta/rencistę, kwoty zdrowotnej 2026. Ujawnił dwa powyższe zwolnienia ze zdrowotnej.
+Poprzednie poradniki (umowy cywilnoprawne) — walidacja bez zmian, zlecenie/dzieło poza zakresem (JDG).
+
+## Raport PDF (v10)
+
+Na ekranie wyniku — przycisk "Wygeneruj raport PDF". Profesjonalny raport A4 zawiera:
+- Nagłówek z brandingiem biura (gradient, nazwa, kontakt, "przygotowano dla")
+- Aktualny kod 6-znakowy + objaśnienie znaków
+- CTA przy błędnym kodzie (link do konsultacji / e-mail)
+- Wykresy SVG: składki w czasie (słupkowy) + podział społeczne/zdrowotna (donut)
+- Pełny harmonogram składek 5 lat z oznaczeniem prognoz
+- Scenariusze (obecny / z chorobowym / docelowy Pełny ZUS) z różnicami kwot
+- Wskazówki, ostrzeżenia, ważne terminy administracyjne
+- Stopka z zastrzeżeniem prawnym i danymi biura
+
+### Branding
+Panel boczny → "🏢 Branding raportu PDF" — nazwa biura, kontakt, link do konsultacji,
+imię klienta. Wszystko opcjonalne.
+
+### Technologia
+Raport: HTML → Chromium (playwright) → PDF. Wykresy jako inline SVG (bez JS).
+Wymaga: playwright (requirements.txt) + biblioteki systemowe (packages.txt).
+Na Streamlit Cloud chromium instaluje się automatycznie przy pierwszym raporcie.
+Lokalnie: `playwright install chromium`.

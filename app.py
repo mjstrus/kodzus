@@ -28,6 +28,9 @@ from kodzus_codes import (
     describe_code, adjust_code_for_person, get_entrepreneur_catalog,
     FIFTH_CHAR, SIXTH_CHAR,
 )
+from kodzus_report import (
+    build_report_html, render_pdf, compute_scenarios, BrandConfig,
+)
 
 # =============================================================================
 # KONFIGURACJA STRONY
@@ -267,6 +270,22 @@ with st.sidebar:
     st.markdown("---")
     show_catalog = st.checkbox("📖 Przeglądarka katalogu kodów", value=False,
                                help="Pełny katalog kodów ZUS dla działalności (05xx).")
+
+    st.markdown("---")
+    with st.expander("🏢 Branding raportu PDF"):
+        st.caption("Dane biura na raporcie PDF (opcjonalne).")
+        if "brand" not in st.session_state:
+            st.session_state.brand = {}
+        b = st.session_state.brand
+        b["office_name"] = st.text_input("Nazwa biura", value=b.get("office_name", ""))
+        b["office_subtitle"] = st.text_input("Podtytuł", value=b.get("office_subtitle", ""))
+        b["contact_email"] = st.text_input("E-mail kontaktowy", value=b.get("contact_email", ""))
+        b["contact_phone"] = st.text_input("Telefon", value=b.get("contact_phone", ""))
+        b["consultation_url"] = st.text_input("Link do umówienia konsultacji",
+                                              value=b.get("consultation_url", ""),
+                                              placeholder="https://...")
+        b["client_name"] = st.text_input("Imię i nazwisko klienta", value=b.get("client_name", ""),
+                                         help="Pojawi się jako 'Przygotowano dla'.")
 
     st.markdown("---")
     if get_gus_key():
@@ -665,6 +684,14 @@ elif step_name == "status":
         "Rencista — pobieram rentę z tytułu niezdolności do pracy": "disability_pensioner",
     }[status]
 
+    if d["special_status"] == "retiree":
+        st.info("Emeryt może być zwolniony ze składki zdrowotnej z działalności, jeśli emerytura ≤ płaca minimalna "
+                "(4 806 zł) oraz przychód z działalności ≤ 50% najniższej emerytury (lub karta podatkowa).")
+        d["pension_amount"] = st.number_input(
+            "Emerytura brutto miesięcznie (PLN)", min_value=0.0, step=100.0,
+            value=d.get("pension_amount", 0.0),
+            help="Do oceny zwolnienia ze składki zdrowotnej.")
+
     st.write("Stopień niepełnosprawności (wpływa na 6. znak kodu):")
     disab = st.radio(
         "Niepełnosprawność",
@@ -717,6 +744,17 @@ elif step_name == "taxation":
             "Szacowany roczny przychód (PLN) — opcjonalnie", min_value=0.0, step=1000.0,
             value=d.get("estimated_annual_revenue", 0.0),
             help="Do oceny kwalifikacji do Małego ZUS Plus (limit 120 000 PLN).")
+
+    # Przychód miesięczny z działalności — potrzebny do zwolnień ze zdrowotnej
+    # (emeryt o niskim świadczeniu / pracownik na ryczałcie o niskiej podstawie)
+    is_retiree = d.get("special_status") == "retiree"
+    is_low_uop = (d.get("employment_type") == "uop"
+                  and 0 < d.get("employment_salary", 0) <= MIN_WAGE_2026)
+    if is_retiree or is_low_uop:
+        d["monthly_revenue_activity"] = st.number_input(
+            "Przychód miesięczny z działalności (PLN)", min_value=0.0, step=100.0,
+            value=d.get("monthly_revenue_activity", 0.0),
+            help="Do oceny zwolnienia ze składki zdrowotnej (próg 50%).")
 
     col1, col2 = st.columns([1, 1])
     with col1:
@@ -798,6 +836,8 @@ elif step_name == "result":
         estimated_annual_revenue=d.get("estimated_annual_revenue", 0.0),
         check_unregistered=d.get("check_unregistered", False),
         monthly_revenue_unreg=d.get("monthly_revenue_unreg", 0.0),
+        pension_amount=d.get("pension_amount", 0.0),
+        monthly_revenue_activity=d.get("monthly_revenue_activity", 0.0),
     )
 
     result = calculate(inp)
@@ -827,6 +867,32 @@ elif step_name == "result":
             Wynik informacyjny — nie stanowi porady prawnej. Po przekroczeniu progu masz 7 dni na rejestrację w CEIDG.
         </div>
         """, unsafe_allow_html=True)
+
+        if not IS_ACCOUNTANT:
+            st.divider()
+            st.markdown("### 📄 Raport PDF")
+            if st.button("🖨️ Wygeneruj raport PDF", use_container_width=True):
+                with st.spinner("Generuję raport PDF..."):
+                    try:
+                        bd = st.session_state.get("brand", {})
+                        brand = BrandConfig(
+                            office_name=bd.get("office_name", ""),
+                            office_subtitle=bd.get("office_subtitle", ""),
+                            contact_email=bd.get("contact_email", ""),
+                            contact_phone=bd.get("contact_phone", ""),
+                            consultation_url=bd.get("consultation_url", ""),
+                            client_name=bd.get("client_name", ""),
+                        )
+                        html = build_report_html(result, [], error_info, "—", {}, [], brand,
+                                                 is_unregistered=True)
+                        st.session_state["report_pdf"] = render_pdf(html)
+                    except Exception as e:
+                        st.error(f"Nie udało się wygenerować PDF: {e}")
+            if st.session_state.get("report_pdf"):
+                st.download_button(
+                    "📥 Pobierz raport PDF", data=st.session_state["report_pdf"],
+                    file_name=f"raport-zus-{date.today():%Y-%m-%d}.pdf",
+                    mime="application/pdf", use_container_width=True)
 
         st.divider()
         cc1, cc2 = st.columns([1, 1])
@@ -889,6 +955,21 @@ elif step_name == "result":
             'W harmonogramie poniżej składki społeczne wynoszą 0 zł.</div>',
             unsafe_allow_html=True)
 
+    # Wykryj zwolnienie ze zdrowotnej (zdrowotna = 0 w całym harmonogramie)
+    if timeline and all(r["monthly_healthcare"] == 0 for r in timeline):
+        if d.get("special_status") == "retiree":
+            st.markdown(
+                '<div class="alert-success">✅ <strong>Zwolnienie ze składki zdrowotnej</strong> — '
+                'jako emeryt o niskim świadczeniu (emerytura ≤ płaca minimalna i niski przychód z działalności) '
+                'jesteś zwolniony z opłacania składki zdrowotnej z działalności.</div>',
+                unsafe_allow_html=True)
+        else:
+            st.markdown(
+                '<div class="alert-success">✅ <strong>Zwolnienie ze składki zdrowotnej</strong> — '
+                'spełniasz warunki zwolnienia ze składki zdrowotnej z działalności '
+                '(niska podstawa z etatu, ryczałt, niski przychód z działalności).</div>',
+                unsafe_allow_html=True)
+
     st.subheader("Harmonogram składek ZUS")
     df = pd.DataFrame([{
         "Etap": r["stage_name"] + (" ⚠" if r["is_forecast"] else ""),
@@ -903,6 +984,49 @@ elif step_name == "result":
 
     if any(r["is_forecast"] for r in timeline):
         st.caption("⚠️ Etapy oznaczone ⚠ mają kwoty prognozowane.")
+
+    # --- RAPORT PDF (tylko tryb przedsiębiorcy) ---
+    if not IS_ACCOUNTANT:
+        st.divider()
+        st.markdown("### 📄 Raport PDF")
+        st.write("Profesjonalny raport z kodem, harmonogramem, wykresami, scenariuszami i wskazówkami.")
+
+        if st.button("🖨️ Wygeneruj raport PDF", use_container_width=True):
+            with st.spinner("Generuję raport PDF..."):
+                try:
+                    scenarios = compute_scenarios(inp, result, timeline)
+                    bd = st.session_state.get("brand", {})
+                    brand = BrandConfig(
+                        office_name=bd.get("office_name", ""),
+                        office_subtitle=bd.get("office_subtitle", ""),
+                        contact_email=bd.get("contact_email", ""),
+                        contact_phone=bd.get("contact_phone", ""),
+                        consultation_url=bd.get("consultation_url", ""),
+                        client_name=bd.get("client_name", ""),
+                    )
+                    html = build_report_html(
+                        result, timeline, error_info, full_code, code_detail,
+                        scenarios, brand, is_unregistered=result.get("is_unregistered", False),
+                    )
+                    pdf_bytes = render_pdf(html)
+                    st.session_state["report_pdf"] = pdf_bytes
+                except Exception as e:
+                    st.error(f"Nie udało się wygenerować PDF: {e}")
+
+        if st.session_state.get("report_pdf"):
+            st.download_button(
+                label="📥 Pobierz raport PDF",
+                data=st.session_state["report_pdf"],
+                file_name=f"raport-zus-{date.today():%Y-%m-%d}.pdf",
+                mime="application/pdf",
+                use_container_width=True,
+            )
+    else:
+        st.divider()
+        st.markdown('<div class="alert-info">ℹ️ W trybie biura zestawienia klientów eksportujesz do '
+                    '<strong>Excela</strong> przez <strong>Import zbiorczy</strong> (panel boczny). '
+                    'Elegancki raport PDF jest przeznaczony dla przedsiębiorcy.</div>',
+                    unsafe_allow_html=True)
 
     # --- EKSPORT .ICS ---
     st.divider()

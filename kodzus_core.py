@@ -157,6 +157,20 @@ MZP_MONTHS = 36
 PREVIOUS_ACTIVITY_BLOCK_MONTHS = 60
 # Działalność nierejestrowana: przychód miesięczny < 75% min. wynagrodzenia
 UNREGISTERED_THRESHOLD_PCT = 0.75
+# Najniższa emerytura 2026 (do progu zwolnienia emeryta ze zdrowotnej)
+# Waloryzacja 1 marca 2026: do 29.02 = 1878,91; od 1.03 = 1978,49 (wskaźnik 5,3%)
+LOWEST_PENSION_2026_JAN_FEB = 1878.91
+LOWEST_PENSION_2026_FROM_MAR = 1978.49
+
+
+def get_lowest_pension(d: date) -> float:
+    """Najniższa emerytura na daną datę (waloryzacja 1 marca)."""
+    if d.year < 2026:
+        return LOWEST_PENSION_2026_JAN_FEB
+    if d.year == 2026 and d.month < 3:
+        return LOWEST_PENSION_2026_JAN_FEB
+    # Od marca 2026 i później (dla lat kolejnych brak oficjalnych danych — przybliżenie)
+    return LOWEST_PENSION_2026_FROM_MAR
 
 
 @dataclass
@@ -179,6 +193,9 @@ class WizardInput:
     # Działalność nierejestrowana — sprawdzane PRZED ścieżką JDG
     check_unregistered: bool = False     # czy rozważa działalność nierejestrowaną
     monthly_revenue_unreg: float = 0.0   # szacowany przychód miesięczny (do progu 75%)
+    # Dane do zwolnień ze składki ZDROWOTNEJ
+    pension_amount: float = 0.0          # emerytura brutto/msc (zwolnienie emeryta)
+    monthly_revenue_activity: float = 0.0  # przychód miesięczny z działalności (do progu 50%)
 
 
 def _get_code(stage: str, wants_chorobowe: bool) -> str:
@@ -480,10 +497,31 @@ def compute_social(stage: str, wants_chorobowe: bool, rates: dict) -> float:
 
 
 def compute_healthcare(taxation_form: str, monthly_income: float,
-                       annual_revenue: float, seg_from: date, rates: dict) -> float:
+                       annual_revenue: float, seg_from: date, rates: dict,
+                       inp: "WizardInput | None" = None) -> float:
     hc = rates["healthcare"]
     is_january = seg_from.month == 1
     min_amount = hc["min_monthly_january"] if is_january else hc["min_monthly_from_feb"]
+    min_wage = rates.get("min_wage", MIN_WAGE_2026)
+
+    # --- ZWOLNIENIA ZE SKŁADKI ZDROWOTNEJ ---
+    if inp is not None:
+        # 1. Emeryt o niskim świadczeniu: emerytura brutto ≤ min. wynagrodzenie
+        #    ORAZ (przychód z działalności ≤ 50% najniższej emerytury LUB karta podatkowa)
+        if inp.special_status == "retiree" and inp.pension_amount > 0:
+            lowest_pension = get_lowest_pension(seg_from)
+            cond_pension = inp.pension_amount <= min_wage
+            cond_revenue = (inp.monthly_revenue_activity <= 0.5 * lowest_pension
+                            or taxation_form == "tax_card")
+            if cond_pension and cond_revenue:
+                return 0.0
+
+        # 2. Pracownik o niskiej podstawie: podstawa z etatu ≤ min. wynagrodzenie
+        #    ORAZ przychód z działalności ≤ 50% min. wynagrodzenia ORAZ ryczałt
+        if (inp.employment_type == "uop" and 0 < inp.employment_salary <= min_wage
+                and taxation_form == "lump_sum"
+                and 0 < inp.monthly_revenue_activity <= 0.5 * min_wage):
+            return 0.0
 
     if taxation_form == "scale":
         if monthly_income > 0:
@@ -547,7 +585,7 @@ def generate_timeline(result: dict, inp: WizardInput) -> list[dict]:
                 social = 0.0
             healthcare = compute_healthcare(
                 inp.taxation_form, inp.estimated_monthly_income,
-                inp.estimated_annual_revenue, seg_from, rates
+                inp.estimated_annual_revenue, seg_from, rates, inp
             )
             timeline.append({
                 "stage_name": STAGE_LABELS.get(stage_data["stage"], stage_data["stage"]),
