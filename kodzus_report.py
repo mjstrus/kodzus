@@ -167,7 +167,8 @@ def _date_pl(d: date | None) -> str:
 def build_report_html(result: dict, timeline: list[dict], error_info: dict,
                       full_code: str, code_detail: dict,
                       scenarios: list[dict], brand: BrandConfig,
-                      is_unregistered: bool = False) -> str:
+                      is_unregistered: bool = False, is_planning: bool = False,
+                      wakacje: dict | None = None, advice: dict | None = None) -> str:
     """Buduje pełny HTML raportu."""
 
     today = date.today().strftime("%d.%m.%Y")
@@ -188,17 +189,36 @@ def build_report_html(result: dict, timeline: list[dict], error_info: dict,
 
     # --- Główny kod ---
     stage_end_str = _date_pl(result.get("stage_end"))
+    _label = "Kod tytułu ubezpieczenia na start" if is_planning else "Aktualny kod tytułu ubezpieczenia"
+    _period = "Pierwszy etap: od" if is_planning else "Obowiązuje od"
     code_card = f'''
     <div class="code-card">
-        <div class="code-card-label">Aktualny kod tytułu ubezpieczenia</div>
+        <div class="code-card-label">{_label}</div>
         <div class="code-card-value">{full_code}</div>
         <div class="code-card-desc">{result["stage_label"]}</div>
-        <div class="code-card-period">Obowiązuje od {_date_pl(result.get("stage_start"))} do {stage_end_str}</div>
+        <div class="code-card-period">{_period} {_date_pl(result.get("stage_start"))} do {stage_end_str}</div>
     </div>'''
 
-    # --- CTA przy błędnym kodzie ---
+    # --- CTA ---
     cta_block = ""
-    if error_info.get("cta_visible"):
+    if is_planning:
+        # Dla planującego: zachęta do konsultacji przy zakładaniu (nie "błędny kod")
+        link = ""
+        if brand.consultation_url:
+            link = f'<a class="cta-btn cta-btn-blue" href="{brand.consultation_url}">Umów konsultację →</a>'
+        elif brand.contact_email:
+            link = f'<a class="cta-btn cta-btn-blue" href="mailto:{brand.contact_email}">Napisz do nas →</a>'
+        if link:
+            cta_block = f'''
+            <div class="cta-box cta-box-blue">
+                <div class="cta-title cta-title-blue">🚀 Zakładasz firmę? Zrób to dobrze od początku</div>
+                <div class="cta-text cta-text-blue">
+                    Wybór właściwej ścieżki ulg i prawidłowe zgłoszenie do ZUS na starcie pozwala
+                    uniknąć kosztownych błędów. Pomożemy Ci wybrać optymalną formę i dopełnić formalności.
+                </div>
+                {link}
+            </div>'''
+    elif error_info.get("cta_visible"):
         link = ""
         if brand.consultation_url:
             link = f'<a class="cta-btn" href="{brand.consultation_url}">Umów konsultację →</a>'
@@ -237,18 +257,67 @@ def build_report_html(result: dict, timeline: list[dict], error_info: dict,
     chart_donut = _svg_donut(first["monthly_social"], first["monthly_healthcare"])
 
     # --- Scenariusze ---
+    # Obsługa nowych scenariuszy strategii (mają cost_5y) lub starych (mają diff)
     scenario_cards = ""
-    for sc in scenarios:
-        diff_cls = "up" if sc["diff"] > 0 else ("down" if sc["diff"] < 0 else "flat")
-        diff_sign = "+" if sc["diff"] > 0 else ""
-        scenario_cards += f'''
-        <div class="scenario">
-            <div class="scenario-name">{sc["name"]}</div>
-            <div class="scenario-code">{sc["code"]}</div>
-            <div class="scenario-amount">{_money(sc["monthly_total"])}<span>/msc</span></div>
-            <div class="scenario-diff {diff_cls}">{diff_sign}{_money(sc["diff"])} vs obecny</div>
-            <div class="scenario-note">{sc["note"]}</div>
-        </div>'''
+    scenario_table = ""
+    is_strategy = scenarios and "cost_5y" in scenarios[0]
+
+    if is_strategy:
+        def _hz(sc, hz, field):
+            return sc.get("horizons", {}).get(hz, {}).get(field, 0.0)
+
+        for sc in scenarios:
+            star = "★ " if sc.get("recommended") else ""
+            border = f"2px solid {ACCENT}" if sc.get("recommended") else f"1.5px solid {LINE}"
+            bg = "#f5f9ff" if sc.get("recommended") else "#fff"
+            dots = "●" * sc["protection_level"] + "○" * (3 - sc["protection_level"])
+
+            def hrow(label, field, prefix=""):
+                cells = "".join(
+                    f'<td style="text-align:right;font-size:8px;padding:2px 4px">{prefix}{_money(_hz(sc, hz, field))}</td>'
+                    for hz in (12, 36, 60))
+                return f'<tr><td style="font-size:7.5px;color:{MUTED};padding:2px 4px">{label}</td>{cells}</tr>'
+
+            scenario_cards += f'''
+            <div class="scenario" style="border:{border};background:{bg}">
+                <div class="scenario-name">{star}{sc["name"]}</div>
+                <div class="scenario-code">{sc["subtitle"]}</div>
+                <table style="width:100%;border-collapse:collapse;margin:6px 0">
+                    <tr style="border-bottom:1px solid {LINE}">
+                        <td style="padding:2px 4px"></td>
+                        <td style="text-align:right;font-size:7px;color:#94a3b8;padding:2px 4px">1 rok</td>
+                        <td style="text-align:right;font-size:7px;color:#94a3b8;padding:2px 4px">3 lata</td>
+                        <td style="text-align:right;font-size:7px;color:#94a3b8;padding:2px 4px">5 lat</td>
+                    </tr>
+                    {hrow("Wydano", "spent")}
+                    {hrow("Emerytura", "pension")}
+                    {hrow("Podatek", "tax_shield", "−")}
+                </table>
+                <div class="scenario-metric">🛡 Ochrona: {dots} &nbsp; ▶ Start: <strong>{_money(sc["first_total"])}/msc</strong></div>
+                <div class="scenario-note">{sc["for_whom"]}</div>
+            </div>'''
+
+        # Tabela zbiorcza — stan po 5 latach
+        trows = ""
+        for sc in scenarios:
+            star = "★ " if sc.get("recommended") else ""
+            hl = ' style="background:#eff6ff"' if sc.get("recommended") else ""
+            trows += f'''<tr{hl}>
+                <td><strong>{star}{sc["name"]}</strong></td>
+                <td class="num">{_money(sc["cost_5y"])}</td>
+                <td class="num">{_money(sc["pension_5y"])}</td>
+                <td class="num">−{_money(sc.get("tax_5y", 0))}</td>
+                <td>{sc["protection_label"]}</td>
+            </tr>'''
+        scenario_table = f'''
+        <div style="font-size:9px;color:{MUTED};margin:10px 0 4px">Tabela zbiorcza — stan po 5 latach</div>
+        <table>
+            <thead><tr>
+                <th>Wariant</th><th class="num">Wydano (5 lat)</th>
+                <th class="num">Na emeryturę</th><th class="num">Obniżka podatku</th><th>Ochrona</th>
+            </tr></thead>
+            <tbody>{trows}</tbody>
+        </table>'''
 
     # --- Wskazówki i terminy ---
     tips = ""
@@ -263,6 +332,69 @@ def build_report_html(result: dict, timeline: list[dict], error_info: dict,
         <li><strong>31 stycznia</strong> — oświadczenie o Małym ZUS Plus (jeśli kwalifikujesz).</li>
         <li><strong>20 maja</strong> — roczne rozliczenie składki zdrowotnej (DRA za kwiecień).</li>
         <li><strong>7 dni</strong> — termin na zgłoszenie zmiany kodu / danych w ZUS.</li>'''
+
+    # --- Wakacje składkowe (opcjonalna sekcja) ---
+    wakacje_block = ""
+    if wakacje:
+        if wakacje["qualifies"]:
+            saving = wakacje["monthly_social_saving"]
+            if saving > 0:
+                body = (f'Kwalifikujesz się do wakacji składkowych — raz w roku kalendarzowym możesz '
+                        f'zwolnić się ze składek społecznych za jeden wybrany miesiąc. '
+                        f'Oszczędność na etapie {wakacje["stage_for_saving"]}: '
+                        f'<strong>{_money(saving)}</strong> za ten miesiąc (zdrowotną nadal opłacasz).')
+            else:
+                body = ('Kwalifikujesz się do wakacji składkowych. Obecnie jesteś na etapie bez składek '
+                        'społecznych (Ulga), więc zwolnienie warto wykorzystać po wejściu w składki preferencyjne lub pełne.')
+            wakacje_block = f'''
+            <div class="section">
+                <div class="section-title">Wakacje składkowe</div>
+                <div class="explain" style="background:#ecfdf3">
+                    <div style="font-size:10.5px;color:{INK};margin-bottom:8px">{body}</div>
+                    <div style="font-size:10px;color:{INK}">
+                        💡 <strong>Wskazówka:</strong> o wakacje składkowe najlepiej wnioskować na miesiąc
+                        przed miesiącem spodziewanego wysokiego przychodu — obniżają one składki społeczne za
+                        wybrany miesiąc. Wniosek RWS składasz w eZUS w miesiącu poprzedzającym
+                        (np. zwolnienie za grudzień → wniosek w listopadzie).
+                    </div>
+                </div>
+            </div>'''
+        else:
+            powody = "; ".join(wakacje["reasons"])
+            wakacje_block = f'''
+            <div class="section">
+                <div class="section-title">Wakacje składkowe</div>
+                <div class="explain" style="background:#fffbeb">
+                    <div style="font-size:10.5px;color:{INK}">
+                        Nie kwalifikujesz się do wakacji składkowych. Powód: {powody}.
+                    </div>
+                </div>
+            </div>'''
+
+    # --- Rekomendacja doradcza (narracja + kroki + pułapki) ---
+    advice_block = ""
+    if advice:
+        steps_html = "".join(f'<li>{s}</li>' for s in advice.get("steps", []))
+        pitfalls_html = "".join(f'<li>{p}</li>' for p in advice.get("pitfalls", []))
+        reasoning = advice.get("reasoning", "")
+        advice_block = f'''
+        <div class="section">
+            <div class="section-title">Nasza rekomendacja</div>
+            <div class="reco-box">
+                <div class="reco-headline">{advice.get("headline","")}</div>
+                <div class="reco-reasoning">{reasoning}</div>
+            </div>
+            <div class="reco-cols">
+                <div class="reco-col">
+                    <div class="reco-col-title">Plan krok po kroku</div>
+                    <ol class="reco-steps">{steps_html}</ol>
+                </div>
+                <div class="reco-col">
+                    <div class="reco-col-title">Na co uważać</div>
+                    <ul class="reco-pitfalls">{pitfalls_html}</ul>
+                </div>
+            </div>
+        </div>'''
 
     # --- Stopka kontaktowa ---
     footer_contact = ""
@@ -343,6 +475,26 @@ def build_report_html(result: dict, timeline: list[dict], error_info: dict,
         display: inline-block; margin-top: 12px; background: {DANGER}; color: #fff;
         text-decoration: none; padding: 9px 20px; border-radius: 8px; font-weight: 700; font-size: 11px;
     }}
+    .cta-box-blue {{ background: #eff6ff; border-color: {ACCENT}; }}
+    .cta-title-blue {{ color: {ACCENT}; }}
+    .cta-text-blue {{ color: #1e3a8a; }}
+    .cta-btn-blue {{ background: {ACCENT}; }}
+    /* Rekomendacja */
+    .reco-box {{ background: linear-gradient(135deg,#f0f7ff,#eef2ff); border-left: 4px solid {ACCENT};
+                 border-radius: 10px; padding: 14px 18px; margin-bottom: 12px; }}
+    .reco-headline {{ font-size: 13px; font-weight: 800; color: {NAVY}; margin-bottom: 6px; }}
+    .reco-reasoning {{ font-size: 10.5px; color: {INK}; line-height: 1.55; }}
+    .reco-cols {{ display: flex; gap: 14px; }}
+    .reco-col {{ flex: 1; }}
+    .reco-col-title {{ font-size: 10px; font-weight: 800; color: {ACCENT};
+                       text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 6px; }}
+    ol.reco-steps {{ padding-left: 16px; }}
+    ol.reco-steps li {{ font-size: 9.5px; color: {INK}; line-height: 1.45; padding: 3px 0; }}
+    ul.reco-pitfalls {{ list-style: none; }}
+    ul.reco-pitfalls li {{ font-size: 9.5px; color: #7c2d12; line-height: 1.45; padding: 4px 0 4px 16px;
+                           position: relative; }}
+    ul.reco-pitfalls li::before {{ content: "!"; position: absolute; left: 4px; font-weight: 800;
+                                   color: {WARNING}; }}
     /* Charts */
     .chart-row {{ display: flex; gap: 20px; align-items: center; }}
     .chart-main {{ flex: 1; }}
@@ -360,17 +512,19 @@ def build_report_html(result: dict, timeline: list[dict], error_info: dict,
     td.total {{ font-weight: 800; color: {NAVY}; }}
     .forecast {{ background: {WARNING}; color: #fff; font-size: 7px; padding: 1px 4px; border-radius: 3px; vertical-align: middle; }}
     /* Scenarios */
-    .scenarios {{ display: flex; gap: 12px; }}
-    .scenario {{ flex: 1; border: 1.5px solid {LINE}; border-radius: 12px; padding: 14px; }}
-    .scenario-name {{ font-weight: 700; font-size: 11px; color: {NAVY}; }}
-    .scenario-code {{ font-family: 'JetBrains Mono', monospace; font-size: 10px; color: {MUTED}; margin: 2px 0 8px; }}
-    .scenario-amount {{ font-size: 20px; font-weight: 800; color: {INK}; }}
+    .scenarios {{ display: flex; gap: 10px; flex-wrap: wrap; }}
+    .scenario {{ flex: 1 1 30%; min-width: 30%; border: 1.5px solid {LINE}; border-radius: 12px; padding: 12px; }}
+    .scenario-name {{ font-weight: 700; font-size: 10.5px; color: {NAVY}; }}
+    .scenario-code {{ font-size: 8px; color: {MUTED}; margin: 2px 0 8px; line-height: 1.3; }}
+    .scenario-amount {{ font-size: 17px; font-weight: 800; color: {INK}; }}
     .scenario-amount span {{ font-size: 10px; font-weight: 400; color: {MUTED}; }}
+    .scenario-sub {{ font-size: 8px; color: {MUTED}; margin-bottom: 6px; }}
+    .scenario-metric {{ font-size: 8.5px; color: {INK}; padding: 1px 0; }}
     .scenario-diff {{ font-size: 10px; font-weight: 700; margin: 4px 0; }}
     .scenario-diff.up {{ color: {DANGER}; }}
     .scenario-diff.down {{ color: {SUCCESS}; }}
     .scenario-diff.flat {{ color: {MUTED}; }}
-    .scenario-note {{ font-size: 9px; color: {MUTED}; line-height: 1.4; }}
+    .scenario-note {{ font-size: 8px; color: {MUTED}; line-height: 1.4; margin-top: 6px; }}
     /* Lists */
     .explain {{ background: #f8fafc; border-radius: 10px; padding: 12px 16px; }}
     .explain-row {{ font-size: 10px; padding: 3px 0; }}
@@ -389,8 +543,8 @@ def build_report_html(result: dict, timeline: list[dict], error_info: dict,
 <body>
 <div class="page">
     <div class="header">
-        <h1>Raport ZUS — kod tytułu ubezpieczenia</h1>
-        <div class="subtitle">Analiza składek i harmonogram na 5 lat</div>
+        <h1>{"Raport ZUS — plan składek na start" if is_planning else "Raport ZUS — kod tytułu ubezpieczenia"}</h1>
+        <div class="subtitle">{"Składki przy zakładaniu działalności — prognoza na 5 lat" if is_planning else "Analiza składek i harmonogram na 5 lat"}</div>
         {office_block}
         {client_block}
         <div class="meta">Data sporządzenia: {today}</div>
@@ -403,6 +557,8 @@ def build_report_html(result: dict, timeline: list[dict], error_info: dict,
     </div>
 
     {cta_block}
+
+    {advice_block}
 
     <div class="section">
         <div class="section-title">Składki w czasie</div>
@@ -428,9 +584,12 @@ def build_report_html(result: dict, timeline: list[dict], error_info: dict,
     </div>
 
     <div class="section">
-        <div class="section-title">Możliwe scenariusze</div>
+        <div class="section-title">Warianty w Twojej obecnej sytuacji</div>
         <div class="scenarios">{scenario_cards}</div>
+        {scenario_table}
     </div>
+
+    {wakacje_block}
 
     <div class="section">
         <div class="section-title">Wskazówki i ostrzeżenia</div>
@@ -560,79 +719,3 @@ def render_pdf(html: str) -> bytes:
     finally:
         os.unlink(html_path)
     return pdf_bytes
-
-
-# =============================================================================
-# SCENARIUSZE — przeliczenie wariantów
-# =============================================================================
-
-def compute_scenarios(inp, base_result: dict, base_timeline: list[dict]) -> list[dict]:
-    """
-    Liczy alternatywne scenariusze względem obecnej sytuacji.
-    Porównuje na pierwszym etapie, w którym występują składki społeczne
-    (żeby np. chorobowe miało widoczny wpływ — na Uldze społecznych nie ma).
-    Zwraca listę: {name, code, monthly_total, diff, note}.
-    """
-    from kodzus_core import calculate, generate_timeline
-    from dataclasses import replace
-
-    def first_social_row(tl):
-        """Pierwszy etap ze składkami społecznymi > 0; inaczej pierwszy etap."""
-        for r in tl:
-            if r["monthly_social"] > 0:
-                return r
-        return tl[0] if tl else None
-
-    base_row = first_social_row(base_timeline)
-    base_total = base_row["monthly_total"] if base_row else 0
-    base_code = base_row["code"] if base_row else base_result["current_code"]
-    ref_label = ""
-    if base_row and base_timeline and base_row is not base_timeline[0]:
-        ref_label = f" (od etapu {base_row['stage_name']})"
-
-    scenarios = []
-
-    # Scenariusz 1: obecny (punkt odniesienia)
-    scenarios.append({
-        "name": "Obecny wybór",
-        "code": base_code,
-        "monthly_total": base_total,
-        "diff": 0.0,
-        "note": f"Twoja aktualna sytuacja{ref_label}.",
-    })
-
-    # Scenariusz 2: wariant chorobowego (przełącz aktualny stan)
-    try:
-        if not base_result.get("social_exempt"):
-            alt = replace(inp, wants_chorobowe=not inp.wants_chorobowe)
-            r = calculate(alt); tl = generate_timeline(r, alt)
-            row = first_social_row(tl)
-            if row:
-                t = row["monthly_total"]
-                if inp.wants_chorobowe:
-                    name, note = "Bez chorobowego", "Niższa składka, ale brak prawa do zasiłku chorobowego i macierzyńskiego."
-                else:
-                    name, note = "Z chorobowym", "Wyższa składka, ale prawo do zasiłku chorobowego i macierzyńskiego."
-                scenarios.append({
-                    "name": name, "code": row["code"], "monthly_total": t,
-                    "diff": t - base_total, "note": note,
-                })
-    except Exception:
-        pass
-
-    # Scenariusz 3: docelowy Pełny ZUS (jeśli obecnie na uldze/preferencyjnym/MZP)
-    try:
-        full_rows = [r for r in base_timeline if r["stage"] == "full"]
-        if full_rows and base_row and base_row["stage"] != "full":
-            t = full_rows[0]["monthly_total"]
-            scenarios.append({
-                "name": "Docelowy Pełny ZUS",
-                "code": full_rows[0]["code"],
-                "monthly_total": t,
-                "diff": t - base_total,
-                "note": "Poziom składek po wykorzystaniu wszystkich ulg — Twój docelowy koszt.",
-            })
-    except Exception:
-        pass
-
-    return scenarios[:3]

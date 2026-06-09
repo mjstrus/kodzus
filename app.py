@@ -16,7 +16,7 @@ import pandas as pd
 
 from kodzus_core import (
     WizardInput, calculate, generate_timeline, detect_error,
-    STAGE_LABELS, MIN_WAGE_2026,
+    STAGE_LABELS, MIN_WAGE_2026, check_wakacje_skladkowe,
 )
 from kodzus_ics import generate_ics
 from kodzus_gus import lookup_nip, validate_nip
@@ -29,8 +29,10 @@ from kodzus_codes import (
     FIFTH_CHAR, SIXTH_CHAR,
 )
 from kodzus_report import (
-    build_report_html, render_pdf, compute_scenarios, BrandConfig,
+    build_report_html, render_pdf, BrandConfig,
 )
+from kodzus_scenarios import compute_strategy_scenarios
+from kodzus_advice import build_recommendation
 
 # =============================================================================
 # KONFIGURACJA STRONY
@@ -256,6 +258,17 @@ with st.sidebar:
     )
     IS_ACCOUNTANT = (mode == "Biuro rachunkowe")
 
+    # Intencja przedsiębiorcy: ma firmę vs planuje założyć
+    IS_PLANNING = False
+    if not IS_ACCOUNTANT:
+        intent = st.radio(
+            "Twoja sytuacja",
+            options=["Mam już firmę", "Planuję założyć działalność"],
+            index=0,
+            help="Planujesz? Zobacz ile składek będziesz płacić i którą ścieżkę ulg wybrać.",
+        )
+        IS_PLANNING = (intent == "Planuję założyć działalność")
+
     batch_mode = False
     if IS_ACCOUNTANT:
         st.markdown('<div class="alert-info" style="font-size:0.8rem">Tryb biura: liczysz w imieniu klienta. Bez gate kontaktowego.</div>', unsafe_allow_html=True)
@@ -338,10 +351,16 @@ def restart():
 # HEADER + PASEK POSTĘPU
 # =============================================================================
 
-st.markdown("""
+_header_title = "🧾 Kalkulator Kodów ZUS"
+_header_sub = "Sprawdź swój aktualny kod tytułu ubezpieczenia i harmonogram składek na 5 lat."
+if not IS_ACCOUNTANT and IS_PLANNING:
+    _header_title = "🧾 Kalkulator składek ZUS"
+    _header_sub = "Planujesz działalność? Sprawdź ile składek zapłacisz i którą ścieżkę ulg wybrać — krok po kroku."
+
+st.markdown(f"""
 <div class="kodzus-header">
-    <h1>🧾 Kalkulator Kodów ZUS</h1>
-    <p>Sprawdź swój aktualny kod tytułu ubezpieczenia i harmonogram składek na 5 lat.</p>
+    <h1>{_header_title}</h1>
+    <p>{_header_sub}</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -525,45 +544,58 @@ d = st.session_state.data
 # =============================================================================
 
 if step_name == "start":
-    st.subheader("📅 Kiedy zaczęłaś/zacząłeś działalność?")
+    if IS_PLANNING:
+        st.subheader("📅 Kiedy planujesz rozpocząć działalność?")
+    else:
+        st.subheader("📅 Kiedy zaczęłaś/zacząłeś działalność?")
 
     gus_key = get_gus_key()
 
-    nip_input = st.text_input(
-        "NIP firmy (opcjonalnie — autouzupełnianie z GUS)",
-        value=d.get("nip", ""),
-        max_chars=13,
-        placeholder="0000000000",
-    )
-    d["nip"] = nip_input
+    # NIP/GUS tylko dla istniejącej firmy — planujący nie ma jeszcze NIP
+    if not IS_PLANNING:
+        nip_input = st.text_input(
+            "NIP firmy (opcjonalnie — autouzupełnianie z GUS)",
+            value=d.get("nip", ""),
+            max_chars=13,
+            placeholder="0000000000",
+        )
+        d["nip"] = nip_input
 
-    if nip_input:
-        nip_clean = "".join(c for c in nip_input if c.isdigit())
-        if len(nip_clean) == 10:
-            if not validate_nip(nip_clean):
-                st.warning("NIP ma nieprawidłową sumę kontrolną.")
-            elif gus_key:
-                if st.button("🔍 Pobierz dane z GUS"):
-                    with st.spinner("Łączę z GUS..."):
-                        st.session_state.gus_result = lookup_nip(nip_clean, gus_key)
-                if st.session_state.gus_result:
-                    r = st.session_state.gus_result
-                    if r.get("error"):
-                        st.warning(r["error"])
-                    else:
-                        st.markdown(
-                            f'<div class="alert-success"><strong>{r.get("name","")}</strong><br>'
-                            f'REGON: {r.get("regon","—")} | {r.get("city","—")}</div>',
-                            unsafe_allow_html=True)
-            else:
-                st.caption("Dodaj klucz GUS API w Secrets żeby włączyć autouzupełnianie.")
+        if nip_input:
+            nip_clean = "".join(c for c in nip_input if c.isdigit())
+            if len(nip_clean) == 10:
+                if not validate_nip(nip_clean):
+                    st.warning("NIP ma nieprawidłową sumę kontrolną.")
+                elif gus_key:
+                    if st.button("🔍 Pobierz dane z GUS"):
+                        with st.spinner("Łączę z GUS..."):
+                            st.session_state.gus_result = lookup_nip(nip_clean, gus_key)
+                    if st.session_state.gus_result:
+                        r = st.session_state.gus_result
+                        if r.get("error"):
+                            st.warning(r["error"])
+                        else:
+                            st.markdown(
+                                f'<div class="alert-success"><strong>{r.get("name","")}</strong><br>'
+                                f'REGON: {r.get("regon","—")} | {r.get("city","—")}</div>',
+                                unsafe_allow_html=True)
+                else:
+                    st.caption("Dodaj klucz GUS API w Secrets żeby włączyć autouzupełnianie.")
 
-    st.write("Podaj datę wpisaną do CEIDG jako dzień rozpoczęcia działalności:")
-    d["start_date"] = polish_date_input(
-        "Data rozpoczęcia działalności", "start_date",
-        default=d.get("start_date", date.today()),
-        min_year=2015, max_year=date.today().year + 5,
-    )
+    if IS_PLANNING:
+        st.write("Wybierz planowaną datę rozpoczęcia działalności (możesz ją później zmienić w CEIDG):")
+        d["start_date"] = polish_date_input(
+            "Planowana data rozpoczęcia", "start_date",
+            default=d.get("start_date", date.today()),
+            min_year=date.today().year, max_year=date.today().year + 5,
+        )
+    else:
+        st.write("Podaj datę wpisaną do CEIDG jako dzień rozpoczęcia działalności:")
+        d["start_date"] = polish_date_input(
+            "Data rozpoczęcia działalności", "start_date",
+            default=d.get("start_date", date.today()),
+            min_year=2015, max_year=date.today().year + 5,
+        )
 
     col1, col2 = st.columns([1, 1])
     with col2:
@@ -770,28 +802,52 @@ elif step_name == "taxation":
 elif step_name == "preferences":
     st.subheader("⚙️ Twoje preferencje")
 
-    d["wants_ulga"] = st.checkbox(
-        "Chcę skorzystać z Ulgi na Start (05 40)", value=d.get("wants_ulga", True),
-        help="6 pełnych miesięcy bez składek społecznych.")
+    # Ulga i chorobowe NIE są już pytaniami — to osie po których generujemy
+    # warianty. Domyślnie ustawiamy je tak, by wynik bazowy był sensowny;
+    # scenariusze i tak policzą wszystkie kombinacje.
+    d["wants_ulga"] = True
+    d["wants_chorobowe"] = False
 
-    # Chorobowe niedostępne: w trakcie Ulgi LUB przy zbiegu z etatem ≥ min. płacy
-    min_wage = MIN_WAGE_2026
-    uop_exempt = (d.get("employment_type") == "uop"
-                  and d.get("employment_salary", 0) >= min_wage)
-    chorobowe_disabled = d["wants_ulga"] or uop_exempt
+    st.markdown(
+        '<div class="alert-info">💡 Nie musisz teraz decydować o uldze ani o chorobowym — '
+        '<strong>policzymy za Ciebie wszystkie warianty</strong> i pokażemy je obok siebie '
+        '(ile wydasz, ile odłożysz na emeryturę, o ile obniżysz podatek). '
+        'Wskaż tylko, co jest dla Ciebie najważniejsze — podpowiemy rekomendację.</div>',
+        unsafe_allow_html=True)
 
-    d["wants_chorobowe"] = st.checkbox(
-        "Chcę opłacać dobrowolne ubezpieczenie chorobowe",
-        value=False if chorobowe_disabled else d.get("wants_chorobowe", False),
-        disabled=chorobowe_disabled,
-        help="Niedostępne w trakcie Ulgi na Start oraz przy etacie ≥ płacy minimalnej.")
-    if d["wants_ulga"]:
-        st.caption("ℹ️ Dobrowolne chorobowe niedostępne w trakcie Ulgi na Start.")
-    elif uop_exempt:
-        st.caption("ℹ️ Dobrowolne chorobowe niedostępne: masz etat ≥ płacy minimalnej, "
-                   "więc składki społeczne z działalności są dobrowolne (nie możesz zgłosić chorobowego).")
+    st.markdown("##### Co jest dla Ciebie najważniejsze?")
+    priority_label = st.radio(
+        "Priorytet",
+        options=["Najniższe koszty na starcie",
+                 "Jak najwięcej na przyszłą emeryturę",
+                 "Ochrona socjalna (zasiłki, chorobowe)",
+                 "Zrównoważony — wszystkiego po trochu"],
+        index={"cost": 0, "pension": 1, "protection": 2, "balanced": 3}.get(d.get("priority", "balanced"), 3),
+        label_visibility="collapsed",
+    )
+    d["priority"] = {
+        "Najniższe koszty na starcie": "cost",
+        "Jak najwięcej na przyszłą emeryturę": "pension",
+        "Ochrona socjalna (zasiłki, chorobowe)": "protection",
+        "Zrównoważony — wszystkiego po trochu": "balanced",
+    }[priority_label]
 
-    st.markdown('<div class="alert-info">Kliknij <strong>Oblicz</strong> żeby wygenerować harmonogram.</div>', unsafe_allow_html=True)
+    st.markdown('<div class="alert-info">Kliknij <strong>Oblicz</strong> żeby wygenerować harmonogram i porównać scenariusze.</div>', unsafe_allow_html=True)
+
+    st.divider()
+    st.markdown("##### Wakacje składkowe")
+    d["check_wakacje"] = st.checkbox(
+        "Sprawdź czy kwalifikuję się do wakacji składkowych",
+        value=d.get("check_wakacje", False),
+        help="Zwolnienie ze składek społecznych za 1 wybrany miesiąc w roku (finansowane z budżetu). Zdrowotną i tak płacisz.")
+    if d["check_wakacje"]:
+        d["insured_count"] = st.number_input(
+            "Liczba ubezpieczonych, których zgłaszasz (w tym siebie)",
+            min_value=1, max_value=200, step=1, value=int(d.get("insured_count", 1)),
+            help="Warunek: do 10 ubezpieczonych.")
+        d["revenue_under_2m_eur"] = st.checkbox(
+            "Przychód roczny nie przekroczył 2 mln euro (w jednym z 2 ostatnich lat)",
+            value=d.get("revenue_under_2m_eur", True))
 
     st.divider()
     st.markdown("##### Działalność nierejestrowana")
@@ -838,6 +894,10 @@ elif step_name == "result":
         monthly_revenue_unreg=d.get("monthly_revenue_unreg", 0.0),
         pension_amount=d.get("pension_amount", 0.0),
         monthly_revenue_activity=d.get("monthly_revenue_activity", 0.0),
+        priority=d.get("priority", "balanced"),
+        check_wakacje=d.get("check_wakacje", False),
+        insured_count=int(d.get("insured_count", 1)),
+        revenue_under_2m_eur=d.get("revenue_under_2m_eur", True),
     )
 
     result = calculate(inp)
@@ -909,15 +969,25 @@ elif step_name == "result":
     code_detail = describe_code(core, full_code.split()[2][0], full_code.split()[2][1])
 
     stage_end_str = result["stage_end"].strftime("%d.%m.%Y") if result["stage_end"] else "bezterminowo"
+    _code_label = ("Kod tytułu ubezpieczenia na start (6-znakowy)" if IS_PLANNING
+                   else "Aktualny kod tytułu ubezpieczenia (6-znakowy)")
+    _period_label = ("Pierwszy etap: od" if IS_PLANNING else "Obowiązuje od")
     st.markdown(f"""
     <div class="code-block">
-        <div class="code-label">Aktualny kod tytułu ubezpieczenia (6-znakowy)</div>
+        <div class="code-label">{_code_label}</div>
         <div class="code-value">{full_code}</div>
         <div class="code-desc">{result['stage_label']}</div>
         <br>
-        <div class="code-label">Obowiązuje od {result['stage_start'].strftime('%d.%m.%Y')} do {stage_end_str}</div>
+        <div class="code-label">{_period_label} {result['stage_start'].strftime('%d.%m.%Y')} do {stage_end_str}</div>
     </div>
     """, unsafe_allow_html=True)
+
+    if IS_PLANNING:
+        st.markdown(
+            '<div class="alert-info">🚀 <strong>To Twój punkt startowy.</strong> '
+            'Poniżej zobaczysz pełną ścieżkę składek na 5 lat — od ulg na początku po pełny ZUS. '
+            'Z tym kodem zgłosisz się do ubezpieczeń przy zakładaniu firmy.</div>',
+            unsafe_allow_html=True)
 
     # Rozbicie znaczenia znaków
     with st.expander("ℹ️ Co oznacza ten kod?"):
@@ -928,7 +998,8 @@ elif step_name == "result":
         if code_detail.get("base_info"):
             st.markdown(f"**Podstawa składek:** {code_detail['base_info']}")
 
-    if error_info["cta_visible"] and not IS_ACCOUNTANT:
+    # CTA o błędnym kodzie — tylko dla istniejącej firmy (planujący nie ma czego sprawdzać)
+    if error_info["cta_visible"] and not IS_ACCOUNTANT and not IS_PLANNING:
         st.markdown(f"""
         <div class="alert-error">
             <strong>⚠️ Sprawdź swój aktualny kod ZUS</strong><br>
@@ -985,6 +1056,127 @@ elif step_name == "result":
     if any(r["is_forecast"] for r in timeline):
         st.caption("⚠️ Etapy oznaczone ⚠ mają kwoty prognozowane.")
 
+    # --- SCENARIUSZE STRATEGII (karty + tabela 3 horyzontów) ---
+    if not result.get("is_unregistered"):
+        st.divider()
+        st.subheader("🧭 Warianty w Twojej obecnej sytuacji")
+        st.write("Nie musisz z góry decydować o uldze czy chorobowym — policzyliśmy za Ciebie "
+                 "wszystkie sensowne warianty. Każdy pokazujemy w trzech punktach w czasie: "
+                 "**po 1 roku, po 3 latach, po 5 latach** — ile wydasz na składki, ile odłożysz "
+                 "na emeryturę i o ile obniżysz podatek. ⭐ to rekomendacja dla Twojego priorytetu.")
+
+        strat = compute_strategy_scenarios(inp)
+
+        # Rekomendacja doradcza (narracja + kroki + pułapki)
+        if strat:
+            adv = build_recommendation(inp, result, timeline, strat, IS_PLANNING)
+            st.markdown(
+                f'<div style="background:linear-gradient(135deg,#f0f7ff,#eef2ff);border-left:4px solid #2563eb;'
+                f'border-radius:10px;padding:16px 20px;margin:8px 0 16px">'
+                f'<div style="font-weight:800;color:#0a2540;font-size:1.05rem;margin-bottom:6px">📋 {adv["headline"]}</div>'
+                f'<div style="font-size:0.9rem;color:#1a2233;line-height:1.55">{adv["reasoning"]}</div></div>',
+                unsafe_allow_html=True)
+            ca, cb = st.columns(2)
+            with ca:
+                st.markdown("**✅ Plan krok po kroku**")
+                for i, s in enumerate(adv["steps"], 1):
+                    st.markdown(f'<div style="font-size:0.85rem;padding:3px 0">{i}. {s}</div>', unsafe_allow_html=True)
+            with cb:
+                st.markdown("**⚠️ Na co uważać**")
+                for p in adv["pitfalls"]:
+                    st.markdown(f'<div style="font-size:0.85rem;padding:3px 0;color:#7c2d12">• {p}</div>', unsafe_allow_html=True)
+            st.divider()
+
+        if strat:
+            def _z(v):
+                return f"{v:,.0f} zł".replace(",", " ")
+
+            # Karty: każda z mini-tabelą 3 horyzontów
+            for i in range(0, len(strat), 2):
+                cols = st.columns(min(2, len(strat) - i))
+                for j, s in enumerate(strat[i:i+2]):
+                    with cols[j]:
+                        star = "⭐ " if s["recommended"] else ""
+                        border = "2px solid #2563eb" if s["recommended"] else "1.5px solid #e2e8f0"
+                        bg = "#f5f9ff" if s["recommended"] else "#ffffff"
+                        dots = "●" * s["protection_level"] + "○" * (3 - s["protection_level"])
+                        h = s["horizons"]
+                        def row3(label, field, prefix=""):
+                            vals = "".join(
+                                f'<td style="text-align:right;padding:2px 6px;font-size:0.74rem">{prefix}{_z(h.get(hz,{}).get(field,0))}</td>'
+                                for hz in (12, 36, 60))
+                            return f'<tr><td style="padding:2px 6px;font-size:0.72rem;color:#64748b">{label}</td>{vals}</tr>'
+                        st.markdown(f"""
+                        <div style="border:{border};background:{bg};border-radius:12px;padding:14px;margin-bottom:10px">
+                            <div style="font-weight:700;color:#0a2540;font-size:0.95rem">{star}{s['name']}</div>
+                            <div style="font-size:0.72rem;color:#64748b;margin:4px 0 8px">{s['subtitle']}</div>
+                            <table style="width:100%;border-collapse:collapse">
+                                <tr style="border-bottom:1px solid #e2e8f0">
+                                    <td style="padding:2px 6px"></td>
+                                    <td style="text-align:right;padding:2px 6px;font-size:0.68rem;color:#94a3b8">1 rok</td>
+                                    <td style="text-align:right;padding:2px 6px;font-size:0.68rem;color:#94a3b8">3 lata</td>
+                                    <td style="text-align:right;padding:2px 6px;font-size:0.68rem;color:#94a3b8">5 lat</td>
+                                </tr>
+                                {row3("💸 Wydano", "spent")}
+                                {row3("💰 Na emeryturę", "pension")}
+                                {row3("📉 Obniżka podatku", "tax_shield", "−")}
+                            </table>
+                            <div style="font-size:0.76rem;margin-top:8px">🛡️ Ochrona: {dots} &nbsp; ▶️ Start: <strong>{_z(s['first_total'])}/msc</strong></div>
+                            <div style="font-size:0.7rem;color:#64748b;margin-top:6px">{s['for_whom']}</div>
+                        </div>
+                        """, unsafe_allow_html=True)
+
+            # Zbiorcza tabela: wariant × horyzont (po 5 lat — kluczowy widok)
+            with st.expander("📊 Tabela zbiorcza — stan po 5 latach"):
+                import pandas as _pd
+                df_sc = _pd.DataFrame([{
+                    "Wariant": ("⭐ " if s["recommended"] else "") + s["name"],
+                    "Wydano (5 lat)": _z(s["cost_5y"]),
+                    "Na emeryturę": _z(s["pension_5y"]),
+                    "Obniżka podatku": "−" + _z(s["tax_5y"]),
+                    "Ochrona": s["protection_label"],
+                } for s in strat])
+                st.dataframe(df_sc, use_container_width=True, hide_index=True)
+                st.caption("Część emerytalna to szacunek (19,52% podstawy). Obniżka podatku zależy "
+                           "od formy opodatkowania (skala/liniowy/ryczałt) i jest przybliżeniem. "
+                           "Horyzonty liczone od daty startu.")
+
+    # --- WAKACJE SKŁADKOWE ---
+    if d.get("check_wakacje") and not result.get("is_unregistered"):
+        st.divider()
+        st.subheader("🏖️ Wakacje składkowe")
+        wak = check_wakacje_skladkowe(inp, result, timeline)
+
+        if wak["qualifies"]:
+            saving = wak["monthly_social_saving"]
+            if saving > 0:
+                st.markdown(
+                    f'<div class="alert-success">✅ <strong>Kwalifikujesz się do wakacji składkowych.</strong> '
+                    f'Możesz raz w roku kalendarzowym zwolnić się ze składek społecznych za jeden wybrany miesiąc. '
+                    f'Oszczędność na obecnym etapie ({wak["stage_for_saving"]}): '
+                    f'<strong>{saving:,.2f} zł</strong> za ten miesiąc (zdrowotną i tak płacisz).</div>'.replace(",", " "),
+                    unsafe_allow_html=True)
+            else:
+                st.markdown(
+                    '<div class="alert-success">✅ <strong>Kwalifikujesz się do wakacji składkowych.</strong> '
+                    'Obecnie jesteś na etapie bez składek społecznych (Ulga), więc zwolnienie nie da teraz '
+                    'oszczędności — warto z niego skorzystać po wejściu w składki preferencyjne lub pełne.</div>',
+                    unsafe_allow_html=True)
+
+            st.markdown(
+                '<div class="alert-info">💡 <strong>Wskazówka strategiczna:</strong> '
+                'o wakacje składkowe najlepiej wnioskować <strong>na miesiąc przed miesiącem, '
+                'w którym spodziewasz się wysokiego przychodu</strong>. Wakacje obniżają składki społeczne '
+                'za wybrany miesiąc, więc największą korzyść dają, gdy zbiegają się z miesiącem dużych obciążeń. '
+                'Wniosek RWS składasz w eZUS w miesiącu poprzedzającym (np. zwolnienie za grudzień → wniosek w listopadzie).</div>',
+                unsafe_allow_html=True)
+        else:
+            powody = "; ".join(wak["reasons"])
+            st.markdown(
+                f'<div class="alert-warning">ℹ️ <strong>Nie kwalifikujesz się do wakacji składkowych.</strong> '
+                f'Powód: {powody}.</div>',
+                unsafe_allow_html=True)
+
     # --- RAPORT PDF (tylko tryb przedsiębiorcy) ---
     if not IS_ACCOUNTANT:
         st.divider()
@@ -994,7 +1186,7 @@ elif step_name == "result":
         if st.button("🖨️ Wygeneruj raport PDF", use_container_width=True):
             with st.spinner("Generuję raport PDF..."):
                 try:
-                    scenarios = compute_scenarios(inp, result, timeline)
+                    scenarios = compute_strategy_scenarios(inp)
                     bd = st.session_state.get("brand", {})
                     brand = BrandConfig(
                         office_name=bd.get("office_name", ""),
@@ -1004,9 +1196,13 @@ elif step_name == "result":
                         consultation_url=bd.get("consultation_url", ""),
                         client_name=bd.get("client_name", ""),
                     )
+                    wak_info = (check_wakacje_skladkowe(inp, result, timeline)
+                                if d.get("check_wakacje") else None)
+                    advice_info = build_recommendation(inp, result, timeline, scenarios, IS_PLANNING)
                     html = build_report_html(
                         result, timeline, error_info, full_code, code_detail,
                         scenarios, brand, is_unregistered=result.get("is_unregistered", False),
+                        is_planning=IS_PLANNING, wakacje=wak_info, advice=advice_info,
                     )
                     pdf_bytes = render_pdf(html)
                     st.session_state["report_pdf"] = pdf_bytes

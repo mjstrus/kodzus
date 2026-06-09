@@ -185,3 +185,69 @@ Raport: HTML → Chromium (playwright) → PDF. Wykresy jako inline SVG (bez JS)
 Wymaga: playwright (requirements.txt) + biblioteki systemowe (packages.txt).
 Na Streamlit Cloud chromium instaluje się automatycznie przy pierwszym raporcie.
 Lokalnie: `playwright install chromium`.
+
+## Tryb planowania działalności (v12)
+
+Panel boczny (tryb przedsiębiorcy) → przełącznik "Mam już firmę" / "Planuję założyć działalność".
+
+Ten sam silnik i te same pytania, inny język i framing:
+- **Nagłówek**: "Kalkulator składek ZUS" zamiast "Kalkulator Kodów ZUS"
+- **Krok 1**: "Kiedy planujesz rozpocząć?" + data tylko w przyszłości, bez pola NIP/GUS (nie ma jeszcze firmy)
+- **Wynik**: "Kod na start" zamiast "aktualny kod", brak ostrzeżenia o błędnym kodzie
+  (nie ma czego sprawdzać), zamiast tego zachęta "Zakładasz firmę? Zrób to dobrze od początku"
+- **Raport PDF**: tytuł "plan składek na start", niebieski CTA do konsultacji przy zakładaniu
+
+Cel: szerszy punkt wejścia — osoby planujące działalność szukają "ile ZUS na starcie",
+co jest czystszym leadem niż osoby z już istniejącą firmą.
+
+## Scenariusze strategii składkowych (v13)
+
+Zamiast jednej ścieżki — 5 strategii, każda optymalizuje co innego:
+- **Najniższe koszty** — maks. ulgi, minimum składek, bez chorobowego
+- **Najwięcej na emeryturę** — rezygnacja z ulg, pełna podstawa
+- **Bezpieczeństwo socjalne** — najwcześniejsze chorobowe (rezygnacja z ulgi)
+- **Zrównoważony** — ulgi na starcie + chorobowe
+- **Optymalny dla Ciebie** — dopasowany do priorytetu wskazanego w wizardzie
+
+W kroku Preferencje użytkownik wskazuje priorytet (koszt / emerytura / ochrona / zrównoważony),
+co steruje rekomendacją "optymalny".
+
+Każdy scenariusz porównany w 3 wymiarach (jednolite okno 60 miesięcy):
+- łączny koszt składek (5 lat)
+- część emerytalna (szacunek 19,52% podstawy)
+- poziom ochrony socjalnej (chorobowe/zasiłki)
+
+Prezentacja: karty z rekomendacją "dla kogo" + tabela porównawcza.
+W wyniku (Streamlit) i w raporcie PDF. Silnik: kodzus_scenarios.py.
+
+## Wakacje składkowe (v14)
+
+W kroku Preferencje: checkbox "Sprawdź czy kwalifikuję się do wakacji składkowych"
++ pytania o liczbę ubezpieczonych (≤10) i przychód < 2 mln euro.
+
+Wakacje składkowe = zwolnienie ze składek SPOŁECZNYCH za 1 wybrany miesiąc w roku
+(finansowane z budżetu). Zdrowotną nadal płacisz.
+
+Warunki sprawdzane: nie na rzecz byłego/obecnego pracodawcy, ≤10 ubezpieczonych,
+przychód < 2 mln euro, nie działalność nierejestrowana.
+
+Wynik (Streamlit + raport PDF): kwalifikacja TAK/NIE z powodami, oszczędność miesięczna
+na obecnym etapie, oraz WSKAZÓWKA STRATEGICZNA: o wakacje najlepiej wnioskować na miesiąc
+przed miesiącem spodziewanego wysokiego przychodu (obniżają składki społeczne).
+Wniosek RWS w eZUS w miesiącu poprzedzającym.
+
+## Warstwa doradcza (v16)
+
+Raport i wynik DORADZAJĄ, nie tylko liczą. Moduł kodzus_advice.py generuje:
+- **Headline** — jedno zdanie rekomendacji wg priorytetu użytkownika
+- **Uzasadnienie** — liczby (koszt/emerytura/podatek 5 lat) + kontekst vs najtańszy wariant
+- **Plan krok po kroku** — z realnymi datami przejść między etapami (ulga→pref→MZP→pełny)
+- **Pułapki** — dopasowane do sytuacji: start w trakcie miesiąca (algorytm pełnego miesiąca),
+  forma opodatkowania a odliczenie zdrowotnej, limity MZP
+
+Sekcja "Nasza rekomendacja" na górze raportu PDF (po kodzie) i w wyniku Streamlit.
+
+### Pytania Ulga/chorobowe usunięte z wizarda (v15)
+To były decyzje, których przedsiębiorca nie umie podjąć — teraz są osiami wariantów.
+Kalkulator liczy wszystkie kombinacje i pokazuje obok siebie w 3 horyzontach (1/3/5 lat).
+Stary prosty silnik scenariuszy (compute_scenarios) całkowicie usunięty.

@@ -27,6 +27,11 @@ RATES_2026 = {
     "preferential_base": 1441.80,
     "full_zus_base": 5652.00,
     "mzp_income_limit": 120000.00,
+    # Stopy składek (do rozbicia na część emerytalną)
+    "rates_pct": {
+        "emerytalna": 19.52, "rentowa": 8.00, "chorobowa": 2.45,
+        "wypadkowa": 1.67, "fp_fs": 2.45,
+    },
     "monthly_social": {
         "ulga": {"total_without_chorobowe": 0.0, "total_with_chorobowe": 0.0},
         "preferential": {
@@ -65,6 +70,10 @@ RATES_2027_FORECAST = {
     "preferential_base": 1491.00,
     "full_zus_base": 6120.00,
     "mzp_income_limit": 120000.00,
+    "rates_pct": {
+        "emerytalna": 19.52, "rentowa": 8.00, "chorobowa": 2.45,
+        "wypadkowa": 1.67, "fp_fs": 2.45,
+    },
     "monthly_social": {
         "ulga": {"total_without_chorobowe": 0.0, "total_with_chorobowe": 0.0},
         "preferential": {
@@ -162,6 +171,17 @@ UNREGISTERED_THRESHOLD_PCT = 0.75
 LOWEST_PENSION_2026_JAN_FEB = 1878.91
 LOWEST_PENSION_2026_FROM_MAR = 1978.49
 
+# --- PODATEK DOCHODOWY 2026 (do wymiaru "obniżono podatek") ---
+# Składki SPOŁECZNE odliczane od dochodu/przychodu we wszystkich formach.
+# Składka ZDROWOTNA: skala — brak; liniowy — limit 14 100 zł/rok; ryczałt — 50% zdrowotnej.
+TAX_2026 = {
+    "scale": {"rate": 0.12, "rate_high": 0.32, "threshold": 120000,
+              "health_deduction": "none"},
+    "linear": {"rate": 0.19, "health_deduction": "limit", "health_limit_annual": 14100.0},
+    "lump_sum": {"health_deduction": "half"},  # 50% zdrowotnej od przychodu × stawka ryczałtu
+    "tax_card": {"health_deduction": "none", "rate": 0.0},
+}
+
 
 def get_lowest_pension(d: date) -> float:
     """Najniższa emerytura na daną datę (waloryzacja 1 marca)."""
@@ -196,6 +216,12 @@ class WizardInput:
     # Dane do zwolnień ze składki ZDROWOTNEJ
     pension_amount: float = 0.0          # emerytura brutto/msc (zwolnienie emeryta)
     monthly_revenue_activity: float = 0.0  # przychód miesięczny z działalności (do progu 50%)
+    # Priorytet użytkownika (steruje scenariuszem "optymalny" i rekomendacją)
+    priority: str = "balanced"  # cost | pension | protection | balanced
+    # Wakacje składkowe (zwolnienie ze składek społ. za 1 miesiąc/rok)
+    check_wakacje: bool = False          # czy sprawdzić kwalifikację
+    insured_count: int = 1               # liczba ubezpieczonych (w tym siebie)
+    revenue_under_2m_eur: bool = True    # przychód < 2 mln euro w 1 z 2 ostatnich lat
 
 
 def _get_code(stage: str, wants_chorobowe: bool) -> str:
@@ -494,6 +520,97 @@ def compute_social(stage: str, wants_chorobowe: bool, rates: dict) -> float:
     # full
     key = "total_with_chorobowe_and_fp" if wants_chorobowe else "total_with_fp_without_chorobowe"
     return s["full"][key]
+
+
+def compute_tax_shield(taxation_form: str, monthly_social: float,
+                       monthly_health: float, monthly_income: float,
+                       lump_sum_rate: float = 0.12) -> float:
+    """
+    Szacuje miesięczne OBNIŻENIE podatku dochodowego (PIT) dzięki składkom ZUS.
+
+    Reguły 2026:
+      - Składki SPOŁECZNE: odliczane od dochodu/przychodu → oszczędność = społeczne × stawka.
+      - Składka ZDROWOTNA:
+          * skala (scale): brak odliczenia,
+          * liniowy (linear): odliczenie od dochodu, limit 14 100 zł/rok (≈1175 zł/msc) → × 19%,
+          * ryczałt (lump_sum): 50% zdrowotnej odliczane od przychodu → × stawka ryczałtu,
+          * karta (tax_card): brak.
+
+    Zwraca przybliżoną miesięczną kwotę, o jaką niższy jest podatek.
+    """
+    tax = TAX_2026.get(taxation_form, TAX_2026["scale"])
+    shield = 0.0
+
+    if taxation_form == "scale":
+        rate = tax["rate_high"] if monthly_income * 12 > tax["threshold"] else tax["rate"]
+        shield += monthly_social * rate
+    elif taxation_form == "linear":
+        shield += monthly_social * tax["rate"]
+        monthly_limit = tax["health_limit_annual"] / 12.0
+        deductible_health = min(monthly_health, monthly_limit)
+        shield += deductible_health * tax["rate"]
+    elif taxation_form == "lump_sum":
+        shield += monthly_social * lump_sum_rate
+        shield += 0.5 * monthly_health * lump_sum_rate
+    # tax_card / inne: brak tarczy
+
+    return round(shield, 2)
+
+
+def check_wakacje_skladkowe(inp: "WizardInput", result: dict, timeline: list[dict]) -> dict:
+    """
+    Sprawdza kwalifikację do wakacji składkowych i liczy oszczędność.
+
+    Wakacje składkowe = zwolnienie ze składek SPOŁECZNYCH za 1 wybrany miesiąc
+    w roku kalendarzowym, finansowane z budżetu. Zdrowotną nadal płacisz.
+
+    Warunki (wszystkie naraz):
+      - podlegał ubezpieczeniom z działalności choć 1 dzień w msc poprzedzającym wniosek
+      - nie na rzecz byłego/obecnego pracodawcy
+      - do 10 ubezpieczonych zgłoszonych
+      - przychód < 2 mln euro w jednym z 2 ostatnich lat
+
+    Zwraca: {qualifies, reasons, monthly_social_saving, stage_for_saving}
+    """
+    reasons_fail = []
+
+    # Warunek: nie na rzecz byłego/obecnego pracodawcy
+    if inp.former_employer:
+        reasons_fail.append("wykonujesz działalność na rzecz byłego/obecnego pracodawcy")
+
+    # Warunek: do 10 ubezpieczonych
+    if inp.insured_count > 10:
+        reasons_fail.append(f"zgłaszasz {inp.insured_count} ubezpieczonych (limit to 10)")
+
+    # Warunek: przychód < 2 mln euro
+    if not inp.revenue_under_2m_eur:
+        reasons_fail.append("przychód przekroczył 2 mln euro w obu ostatnich latach")
+
+    # Warunek: działalność nierejestrowana nie kwalifikuje (brak tytułu ZUS)
+    if result.get("is_unregistered"):
+        reasons_fail.append("działalność nierejestrowana nie podlega ubezpieczeniom (brak tytułu)")
+
+    qualifies = len(reasons_fail) == 0
+
+    # Oszczędność = składki społeczne za 1 miesiąc na obecnym/najbliższym etapie ze składkami
+    monthly_saving = 0.0
+    stage_label = ""
+    for row in timeline:
+        if row["monthly_social"] > 0:
+            monthly_saving = row["monthly_social"]
+            stage_label = row["stage_name"]
+            break
+
+    # Jeśli teraz na uldze (społeczne = 0), wakacje nie dają oszczędności teraz
+    if monthly_saving == 0 and timeline:
+        stage_label = timeline[0]["stage_name"]
+
+    return {
+        "qualifies": qualifies,
+        "reasons": reasons_fail,
+        "monthly_social_saving": round(monthly_saving, 2),
+        "stage_for_saving": stage_label,
+    }
 
 
 def compute_healthcare(taxation_form: str, monthly_income: float,
