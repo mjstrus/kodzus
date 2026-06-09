@@ -429,13 +429,13 @@ def build_report_html(result: dict, timeline: list[dict], error_info: dict,
     * {{ margin: 0; padding: 0; box-sizing: border-box; }}
     body {{
         font-family: 'Plus Jakarta Sans', -apple-system, sans-serif;
-        color: {INK}; font-size: 11px; line-height: 1.5;
+        color: {INK}; font-size: 11px; line-height: 1.65;
     }}
-    .page {{ padding: 38px 44px; }}
+    .page {{ padding: 44px 50px; }}
     /* Header */
     .header {{
         background: linear-gradient(135deg, {NAVY} 0%, {NAVY2} 55%, {ACCENT} 150%);
-        color: #fff; padding: 28px 32px; border-radius: 16px; margin-bottom: 22px;
+        color: #fff; padding: 32px 36px; border-radius: 16px; margin-bottom: 30px;
         position: relative; overflow: hidden;
     }}
     .header::after {{
@@ -452,17 +452,17 @@ def build_report_html(result: dict, timeline: list[dict], error_info: dict,
     /* Code card */
     .code-card {{
         background: linear-gradient(145deg, #0a1628, #0f2138);
-        color: #e6edf3; border-radius: 14px; padding: 22px 26px; margin-bottom: 18px;
+        color: #e6edf3; border-radius: 14px; padding: 26px 30px; margin-bottom: 26px;
     }}
     .code-card-label {{ color: #7d8fa3; font-size: 9px; text-transform: uppercase; letter-spacing: 0.08em; }}
     .code-card-value {{ font-family: 'JetBrains Mono', monospace; color: #6db3ff; font-size: 32px; font-weight: 700; letter-spacing: 0.06em; margin: 4px 0; }}
     .code-card-desc {{ color: #a5d6ff; font-size: 13px; font-weight: 600; }}
     .code-card-period {{ color: #7d8fa3; font-size: 10px; margin-top: 8px; }}
     /* Sections */
-    .section {{ margin-bottom: 22px; }}
+    .section {{ margin-bottom: 32px; }}
     .section-title {{
         font-size: 13px; font-weight: 800; color: {NAVY};
-        border-left: 4px solid {ACCENT}; padding-left: 10px; margin-bottom: 12px;
+        border-left: 4px solid {ACCENT}; padding-left: 10px; margin-bottom: 16px;
     }}
     /* CTA */
     .cta-box {{
@@ -481,17 +481,17 @@ def build_report_html(result: dict, timeline: list[dict], error_info: dict,
     .cta-btn-blue {{ background: {ACCENT}; }}
     /* Rekomendacja */
     .reco-box {{ background: linear-gradient(135deg,#f0f7ff,#eef2ff); border-left: 4px solid {ACCENT};
-                 border-radius: 10px; padding: 14px 18px; margin-bottom: 12px; }}
-    .reco-headline {{ font-size: 13px; font-weight: 800; color: {NAVY}; margin-bottom: 6px; }}
-    .reco-reasoning {{ font-size: 10.5px; color: {INK}; line-height: 1.55; }}
-    .reco-cols {{ display: flex; gap: 14px; }}
+                 border-radius: 10px; padding: 18px 22px; margin-bottom: 18px; }}
+    .reco-headline {{ font-size: 13px; font-weight: 800; color: {NAVY}; margin-bottom: 8px; line-height: 1.4; }}
+    .reco-reasoning {{ font-size: 10.5px; color: {INK}; line-height: 1.7; }}
+    .reco-cols {{ display: flex; gap: 22px; }}
     .reco-col {{ flex: 1; }}
     .reco-col-title {{ font-size: 10px; font-weight: 800; color: {ACCENT};
-                       text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 6px; }}
-    ol.reco-steps {{ padding-left: 16px; }}
-    ol.reco-steps li {{ font-size: 9.5px; color: {INK}; line-height: 1.45; padding: 3px 0; }}
+                       text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 10px; }}
+    ol.reco-steps {{ padding-left: 18px; }}
+    ol.reco-steps li {{ font-size: 9.5px; color: {INK}; line-height: 1.6; padding: 5px 0; }}
     ul.reco-pitfalls {{ list-style: none; }}
-    ul.reco-pitfalls li {{ font-size: 9.5px; color: #7c2d12; line-height: 1.45; padding: 4px 0 4px 16px;
+    ul.reco-pitfalls li {{ font-size: 9.5px; color: #7c2d12; line-height: 1.6; padding: 6px 0 6px 18px;
                            position: relative; }}
     ul.reco-pitfalls li::before {{ content: "!"; position: absolute; left: 4px; font-weight: 800;
                                    color: {WARNING}; }}
@@ -504,9 +504,9 @@ def build_report_html(result: dict, timeline: list[dict], error_info: dict,
     .dot {{ display: inline-block; width: 9px; height: 9px; border-radius: 50%; vertical-align: middle; margin-right: 3px; }}
     /* Table */
     table {{ width: 100%; border-collapse: collapse; font-size: 10px; }}
-    th {{ background: {NAVY}; color: #fff; padding: 8px 8px; text-align: left; font-weight: 600; font-size: 9px; }}
+    th {{ background: {NAVY}; color: #fff; padding: 10px 10px; text-align: left; font-weight: 600; font-size: 9px; }}
     th.num, td.num {{ text-align: right; }}
-    td {{ padding: 7px 8px; border-bottom: 1px solid {LINE}; }}
+    td {{ padding: 9px 10px; border-bottom: 1px solid {LINE}; }}
     tr:nth-child(even) td {{ background: #f8fafc; }}
     .code-cell {{ font-family: 'JetBrains Mono', monospace; font-weight: 700; color: {NAVY}; }}
     td.total {{ font-weight: 800; color: {NAVY}; }}
@@ -526,11 +526,11 @@ def build_report_html(result: dict, timeline: list[dict], error_info: dict,
     .scenario-diff.flat {{ color: {MUTED}; }}
     .scenario-note {{ font-size: 8px; color: {MUTED}; line-height: 1.4; margin-top: 6px; }}
     /* Lists */
-    .explain {{ background: #f8fafc; border-radius: 10px; padding: 12px 16px; }}
-    .explain-row {{ font-size: 10px; padding: 3px 0; }}
+    .explain {{ background: #f8fafc; border-radius: 10px; padding: 16px 20px; }}
+    .explain-row {{ font-size: 10px; padding: 5px 0; line-height: 1.5; }}
     .explain-k {{ display: inline-block; min-width: 110px; font-weight: 700; color: {NAVY}; }}
     ul.tips {{ list-style: none; }}
-    ul.tips li {{ padding: 6px 0 6px 22px; position: relative; font-size: 10px; border-bottom: 1px solid {LINE}; }}
+    ul.tips li {{ padding: 9px 0 9px 22px; position: relative; font-size: 10px; line-height: 1.55; border-bottom: 1px solid {LINE}; }}
     ul.tips li::before {{ content: "•"; position: absolute; left: 6px; color: {ACCENT}; font-weight: 800; }}
     /* Footer */
     .footer {{
