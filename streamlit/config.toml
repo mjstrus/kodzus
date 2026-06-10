@@ -1,0 +1,14 @@
+# KODZUS — konfiguracja Streamlit
+# Wymuszamy JASNY motyw: aplikacja ma własny branding (granat #0a2540 na jasnym tle).
+# Bez tego użytkownicy z ciemnym motywem widzieliby ciemny tekst na ciemnym tle.
+
+[theme]
+base = "light"
+primaryColor = "#2563eb"
+backgroundColor = "#ffffff"
+secondaryBackgroundColor = "#f5f8fc"
+textColor = "#1a2233"
+font = "sans serif"
+
+[browser]
+gatherUsageStats = false
